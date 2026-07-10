@@ -12,6 +12,6 @@ await mkdir(openaiDir, { recursive: true });
 await copyFile(path.join(root, ".openai", "hosting.json"), path.join(openaiDir, "hosting.json"));
 
 await writeFile(path.join(serverDir, "index.js"), [
-  "require('../standalone/server.js');",
+  "import '../standalone/server.js';",
   ""
 ].join("\n"));
