@@ -187,6 +187,125 @@ export class FileRechargeOrderRepository {
     });
   }
 
+  async reserveGenerationCredits(input: { customerId: string; generationJobId: string; credits: number; reason?: string; actorId?: string; actorName?: string }): Promise<{ account: RechargeAccount; ledgerEntry: CreditLedgerEntry }> {
+    if (!Number.isInteger(input.credits) || input.credits <= 0) throw new Error("invalid_credit_amount");
+    return this.runExclusive(async () => {
+      const data = await this.readData();
+      const now = new Date().toISOString();
+      const account = findOrCreateAccount(data, input.customerId, now);
+      if (account.balanceCredits < input.credits) throw new Error("insufficient_credits");
+
+      const ledgerEntry = appendLedgerEntry(data, account, {
+        type: "generation_reserve",
+        deltaBalanceCredits: -input.credits,
+        deltaFrozenCredits: input.credits,
+        generationJobId: input.generationJobId,
+        actorId: input.actorId,
+        actorName: input.actorName,
+        reason: input.reason ?? "创建生成任务冻结积分"
+      }, now);
+      data.accounts = data.accounts.map((item) => item.customerId === account.customerId ? account : item);
+      await this.writeData(data);
+      return { account, ledgerEntry };
+    });
+  }
+
+  async debitReservedGenerationCredits(input: { customerId: string; generationJobId: string; credits: number; reason?: string; actorId?: string; actorName?: string }): Promise<{ account: RechargeAccount; ledgerEntry: CreditLedgerEntry } | undefined> {
+    if (!Number.isInteger(input.credits) || input.credits <= 0) throw new Error("invalid_credit_amount");
+    return this.runExclusive(async () => {
+      const data = await this.readData();
+      if (data.ledgerEntries.some((entry) => entry.generationJobId === input.generationJobId && entry.type === "generation_debit")) return undefined;
+      const now = new Date().toISOString();
+      const account = findOrCreateAccount(data, input.customerId, now);
+      const credits = Math.min(input.credits, reservedCreditsRemainingForJob(data, input.generationJobId), account.frozenCredits);
+      if (credits <= 0) return undefined;
+
+      const ledgerEntry = appendLedgerEntry(data, account, {
+        type: "generation_debit",
+        deltaBalanceCredits: 0,
+        deltaFrozenCredits: -credits,
+        generationJobId: input.generationJobId,
+        actorId: input.actorId,
+        actorName: input.actorName,
+        reason: input.reason ?? "生成任务成功扣除冻结积分"
+      }, now);
+      data.accounts = data.accounts.map((item) => item.customerId === account.customerId ? account : item);
+      await this.writeData(data);
+      return { account, ledgerEntry };
+    });
+  }
+
+  async releaseReservedGenerationCredits(input: { customerId: string; generationJobId: string; credits: number; reason?: string; actorId?: string; actorName?: string }): Promise<{ account: RechargeAccount; ledgerEntry: CreditLedgerEntry } | undefined> {
+    if (!Number.isInteger(input.credits) || input.credits <= 0) throw new Error("invalid_credit_amount");
+    return this.runExclusive(async () => {
+      const data = await this.readData();
+      if (data.ledgerEntries.some((entry) => entry.generationJobId === input.generationJobId && entry.type === "generation_release")) return undefined;
+      const now = new Date().toISOString();
+      const account = findOrCreateAccount(data, input.customerId, now);
+      const credits = Math.min(input.credits, reservedCreditsRemainingForJob(data, input.generationJobId), account.frozenCredits);
+      if (credits <= 0) return undefined;
+
+      const ledgerEntry = appendLedgerEntry(data, account, {
+        type: "generation_release",
+        deltaBalanceCredits: credits,
+        deltaFrozenCredits: -credits,
+        generationJobId: input.generationJobId,
+        actorId: input.actorId,
+        actorName: input.actorName,
+        reason: input.reason ?? "生成任务失败或取消释放冻结积分"
+      }, now);
+      data.accounts = data.accounts.map((item) => item.customerId === account.customerId ? account : item);
+      await this.writeData(data);
+      return { account, ledgerEntry };
+    });
+  }
+
+  async debitStyleAnalysisCredits(input: { customerId: string; credits: number; styleSampleId?: string; reason?: string; actorId?: string; actorName?: string }): Promise<{ account: RechargeAccount; ledgerEntry: CreditLedgerEntry }> {
+    if (!Number.isInteger(input.credits) || input.credits <= 0) throw new Error("invalid_credit_amount");
+    return this.runExclusive(async () => {
+      const data = await this.readData();
+      const now = new Date().toISOString();
+      const account = findOrCreateAccount(data, input.customerId, now);
+      if (account.balanceCredits < input.credits) throw new Error("insufficient_credits");
+
+      const ledgerEntry = appendLedgerEntry(data, account, {
+        type: "style_analysis_debit",
+        deltaBalanceCredits: -input.credits,
+        deltaFrozenCredits: 0,
+        styleSampleId: input.styleSampleId,
+        actorId: input.actorId,
+        actorName: input.actorName,
+        reason: input.reason ?? "参考风格解析扣除积分"
+      }, now);
+      data.accounts = data.accounts.map((item) => item.customerId === account.customerId ? account : item);
+      await this.writeData(data);
+      return { account, ledgerEntry };
+    });
+  }
+
+  async debitUsageCredits(input: { customerId: string; credits: number; generationJobId?: string; reason: string; actorId?: string; actorName?: string }): Promise<{ account: RechargeAccount; ledgerEntry: CreditLedgerEntry }> {
+    if (!Number.isInteger(input.credits) || input.credits <= 0) throw new Error("invalid_credit_amount");
+    return this.runExclusive(async () => {
+      const data = await this.readData();
+      const now = new Date().toISOString();
+      const account = findOrCreateAccount(data, input.customerId, now);
+      if (account.balanceCredits < input.credits) throw new Error("insufficient_credits");
+
+      const ledgerEntry = appendLedgerEntry(data, account, {
+        type: "usage_debit",
+        deltaBalanceCredits: -input.credits,
+        deltaFrozenCredits: 0,
+        generationJobId: input.generationJobId,
+        actorId: input.actorId,
+        actorName: input.actorName,
+        reason: input.reason
+      }, now);
+      data.accounts = data.accounts.map((item) => item.customerId === account.customerId ? account : item);
+      await this.writeData(data);
+      return { account, ledgerEntry };
+    });
+  }
+
   async adjustCredits(input: { customerId: string; deltaCredits: number; reason: string; operatorId?: string }): Promise<{ account: RechargeAccount; ledgerEntry: CreditLedgerEntry }> {
     const deltaCredits = Math.trunc(input.deltaCredits);
     if (deltaCredits === 0) throw new Error("invalid_credit_amount");
@@ -284,6 +403,16 @@ function appendLedgerEntry(
   };
   data.ledgerEntries = [entry, ...data.ledgerEntries];
   return entry;
+}
+
+function reservedCreditsRemainingForJob(data: RechargeOrderData, generationJobId: string): number {
+  return data.ledgerEntries
+    .filter((entry) => entry.generationJobId === generationJobId)
+    .reduce((sum, entry) => {
+      if (entry.type === "generation_reserve") return sum + entry.deltaFrozenCredits;
+      if (entry.type === "generation_debit" || entry.type === "generation_release") return sum + entry.deltaFrozenCredits;
+      return sum;
+    }, 0);
 }
 
 function normalizeAccount(account: RechargeAccount): RechargeAccount {
