@@ -4,6 +4,7 @@ import { persistentDataDir } from "../../server/storagePaths";
 
 export type VideoJobStatus = "queued" | "submitted" | "succeeded" | "failed" | "canceled";
 export type VideoError = { code: string; message: string; retryable: boolean };
+const videoRetryDelaysMs = [15_000, 30_000, 60_000, 120_000, 300_000, 600_000] as const;
 
 export interface VideoJob {
   id: string;
@@ -85,8 +86,9 @@ export class VideoJobService {
   }
   private async failOrRetry(job: VideoJob, error: VideoError) {
     const attemptCount = (job.attemptCount ?? 0) + 1;
-    if (error.retryable && attemptCount <= 3) {
-      return this.repository.update(job.id, (item) => ({ ...item, status: "queued", attemptCount, nextAttemptAt: new Date(Date.now() + attemptCount * 20_000).toISOString(), error }));
+    if (error.retryable && attemptCount <= videoRetryDelaysMs.length) {
+      const delay = videoRetryDelaysMs[attemptCount - 1] ?? videoRetryDelaysMs.at(-1) ?? 60_000;
+      return this.repository.update(job.id, (item) => ({ ...item, status: "queued", attemptCount, nextAttemptAt: new Date(Date.now() + delay).toISOString(), error }));
     }
     return this.fail(job, error);
   }
