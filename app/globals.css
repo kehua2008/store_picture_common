@@ -2034,7 +2034,7 @@ pre {
   gap: 0;
   grid-template-areas:
     "header header header"
-    "controls stage results";
+    "rail stage result";
   grid-template-columns: minmax(350px, 430px) minmax(0, 1fr) minmax(320px, 370px);
   grid-template-rows: 74px minmax(0, calc(100vh - 74px));
   min-height: 100vh;
@@ -2191,7 +2191,7 @@ pre {
   box-shadow: none;
   display: grid;
   gap: 14px;
-  grid-area: controls;
+  grid-area: rail;
   max-height: none;
   min-height: 0;
   overflow-y: auto;
@@ -2493,7 +2493,7 @@ pre {
   box-shadow: none;
   display: grid;
   gap: 14px;
-  grid-area: results;
+  grid-area: result;
   max-height: none;
   min-height: 0;
   overflow-y: auto;
@@ -4002,43 +4002,102 @@ pre {
 }
 
 @media (max-width: 1180px) {
+  .stationHeader {
+    gap: 10px 14px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    min-height: 0;
+    padding: 10px 96px 12px 20px;
+  }
+
+  .stationHeader h1 {
+    display: none;
+  }
+
+  .logoMark {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .headerSlogan {
+    grid-column: 2 / 4;
+    grid-row: 1;
+    justify-self: stretch;
+  }
+
+  .stationHeader nav {
+    display: grid;
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: repeat(2, max-content);
+    justify-self: start;
+    width: auto;
+  }
+
+  .stationHeader nav button {
+    font-size: 11px;
+    min-height: 32px;
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+
+  .stationHeader .accountButton {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .controlRail,
+  .resultRail {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 900px) {
   .station {
     grid-template-areas:
       "header"
-      "controls"
+      "rail"
       "stage"
-      "results";
+      "result";
     grid-template-columns: 1fr;
     grid-template-rows: auto auto auto auto;
+    min-height: 100vh;
     overflow: visible;
   }
 
-  .stationHeader {
-    grid-template-columns: auto 1fr;
-  }
-
-  .stationHeader h1,
-  .headerSlogan,
-  .stationHeader .accountButton,
-  .stationHeader nav,
-  .statusDot {
-    grid-column: 1 / -1;
+  .videoStation {
+    grid-template-areas:
+      "header"
+      "stage"
+      "rail"
+      "result";
   }
 
   .controlRail,
   .mainStage,
   .resultRail {
+    max-height: none;
     overflow: visible;
+  }
+
+  .videoChoiceStageFull {
+    grid-area: stage;
+    grid-column: 1;
+    grid-row: auto;
   }
 }
 
 @media (max-width: 760px) {
   .stationHeader {
     padding: 12px 14px;
+    grid-template-columns: 1fr;
   }
 
   .logoMark {
     width: 132px;
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .stationHeader h1 {
@@ -4047,11 +4106,21 @@ pre {
   }
 
   .headerSlogan {
+    grid-column: 1;
+    grid-row: auto;
     justify-content: flex-start;
   }
 
   .stationHeader nav {
+    grid-column: 1;
+    grid-row: auto;
     justify-content: stretch;
+  }
+
+  .stationHeader .accountButton {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: stretch;
   }
 
   .stationHeader nav button,
