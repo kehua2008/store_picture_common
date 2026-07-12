@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAdminAuth } from "../../../../src/server/auth";
 import { styleLibraryRepository } from "../../../../src/server/services";
+import { isUploadedFile, validateImageUploads } from "../../../../src/server/uploadValidation";
 import type { StyleSampleSourceType, StyleSampleStatus } from "../../../../src/domain/styleLibrary/styleLibrary";
+
+const maxStyleSampleCount = 60;
+const maxStyleSampleBytes = 12 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const admin = await requireAdminAuth(request);
@@ -16,13 +20,21 @@ export async function POST(request: Request) {
   if (!files.length) {
     return NextResponse.json({ error: "missing_style_sample_images" }, { status: 400 });
   }
-  if (files.length > 60) {
-    return NextResponse.json({ error: "too_many_style_sample_images", max: 60 }, { status: 400 });
+  const fileValidation = await validateImageUploads(files, {
+    maxCount: maxStyleSampleCount,
+    maxBytes: maxStyleSampleBytes,
+    tooManyError: "too_many_style_sample_images",
+    invalidTypeError: "invalid_style_sample_image_type",
+    tooLargeError: "style_sample_image_too_large",
+    invalidContentError: "invalid_style_sample_image_content"
+  });
+  if (!fileValidation.files) {
+    return NextResponse.json({ error: fileValidation.error, max: maxStyleSampleCount }, { status: 400 });
   }
 
   const sourceType = normalizeSourceType(formData.get("sourceType"));
   const status = normalizeStatus(formData.get("status")) ?? (sourceType === "user_replicate" ? "pending_review" : "approved");
-  const samples = await styleLibraryRepository.createSamples(files.map((file) => ({
+  const samples = await styleLibraryRepository.createSamples(fileValidation.files.map((file) => ({
     file,
     sourceType,
     status,
@@ -75,7 +87,7 @@ export async function PATCH(request: Request) {
 }
 
 function isImageFileLike(value: FormDataEntryValue): value is File {
-  return typeof value === "object" && "type" in value && typeof value.type === "string" && value.type.startsWith("image/");
+  return isUploadedFile(value);
 }
 
 function value(input: FormDataEntryValue | null): string | undefined {

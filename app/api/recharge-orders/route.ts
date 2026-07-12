@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { normalizeCreditPlanId, normalizeRechargePaymentMethod } from "../../../src/domain/billing/rechargeOrders";
 import { rechargeOrderRepository } from "../../../src/server/services";
 import { getAuthContextFromRequest, requireAdminAuth } from "../../../src/server/auth";
+import { validateImageUpload } from "../../../src/server/uploadValidation";
+
+const maxProofBytes = 8 * 1024 * 1024;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -30,14 +33,20 @@ export async function POST(request: Request) {
   const planId = normalizeCreditPlanId(formData.get("planId"));
   if (!planId) return NextResponse.json({ error: "unknown_credit_plan" }, { status: 400 });
 
-  const proof = formData.get("proof");
-  if (!isImageFileLike(proof)) return NextResponse.json({ error: "missing_payment_proof" }, { status: 400 });
+  const proofValidation = await validateImageUpload(formData.get("proof"), {
+    maxBytes: maxProofBytes,
+    missingError: "missing_payment_proof",
+    invalidTypeError: "invalid_payment_proof_type",
+    tooLargeError: "payment_proof_too_large",
+    invalidContentError: "invalid_payment_proof_content"
+  });
+  if (!proofValidation.file) return NextResponse.json({ error: proofValidation.error }, { status: 400 });
 
   const result = await rechargeOrderRepository.create({
     customerId: auth.user.id,
     planId,
     paymentMethod: normalizeRechargePaymentMethod(formData.get("paymentMethod")),
-    proof
+    proof: proofValidation.file
   });
 
   return NextResponse.json(result, { status: 201 });
@@ -63,8 +72,4 @@ export async function PATCH(request: Request) {
   });
   if (!result) return NextResponse.json({ error: "recharge_order_not_found" }, { status: 404 });
   return NextResponse.json(result);
-}
-
-function isImageFileLike(value: FormDataEntryValue | null): value is File {
-  return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string" && value.type.startsWith("image/");
 }

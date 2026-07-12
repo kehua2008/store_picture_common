@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { normalizeFeedbackReportStatus, validateFeedbackScreenshots } from "../../../src/domain/feedback/feedbackReports";
 import { getAuthContextFromRequest, isAdminUser, requireAdminAuth } from "../../../src/server/auth";
 import { feedbackReportRepository } from "../../../src/server/services";
+import { isUploadedFile, validateImageUploads } from "../../../src/server/uploadValidation";
 
 export async function GET(request: Request) {
   const auth = await getAuthContextFromRequest(request);
@@ -27,6 +28,16 @@ export async function POST(request: Request) {
   const screenshotError = validateFeedbackScreenshots(screenshots);
   if (screenshotError) return NextResponse.json({ error: screenshotError }, { status: 400 });
 
+  const screenshotValidation = await validateImageUploads(screenshots, {
+    maxCount: 3,
+    maxBytes: 8 * 1024 * 1024,
+    tooManyError: "too_many_feedback_screenshots",
+    invalidTypeError: "invalid_feedback_screenshot_type",
+    tooLargeError: "feedback_screenshot_too_large",
+    invalidContentError: "invalid_feedback_screenshot_content"
+  });
+  if (!screenshotValidation.files) return NextResponse.json({ error: screenshotValidation.error }, { status: 400 });
+
   const report = await feedbackReportRepository.create({
     customerId: auth.user.id,
     customerPhone: auth.user.phone,
@@ -35,7 +46,7 @@ export async function POST(request: Request) {
     title,
     description,
     contact,
-    screenshots
+    screenshots: screenshotValidation.files
   });
 
   return NextResponse.json({ report }, { status: 201 });
@@ -68,5 +79,5 @@ function value(input: FormDataEntryValue | null, maxLength: number): string | un
 }
 
 function isFileWithName(value: FormDataEntryValue): value is File {
-  return typeof value === "object" && value !== null && "name" in value && typeof value.name === "string" && value.name.length > 0;
+  return isUploadedFile(value) && "name" in value && typeof value.name === "string" && value.name.length > 0;
 }

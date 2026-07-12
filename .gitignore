@@ -4,3 +4,6 @@ node_modules/
 .data-common/
 .env.local
 tsconfig.tsbuildinfo
+public/feedback-screenshots/
+public/recharge-proofs/
+public/style-samples/

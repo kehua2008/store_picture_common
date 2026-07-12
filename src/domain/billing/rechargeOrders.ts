@@ -229,13 +229,13 @@ export class FileRechargeOrderRepository {
       const raw = await readFile(dataFile, "utf8");
       const parsed = JSON.parse(raw) as Partial<RechargeOrderData>;
       return {
-        accounts: Array.isArray(parsed.accounts) && parsed.accounts.length ? parsed.accounts.map(normalizeAccount) : seedData.accounts,
-        orders: Array.isArray(parsed.orders) && parsed.orders.length ? parsed.orders : seedData.orders,
-        ledgerEntries: Array.isArray(parsed.ledgerEntries) && parsed.ledgerEntries.length ? parsed.ledgerEntries : seedData.ledgerEntries
+        accounts: Array.isArray(parsed.accounts) ? parsed.accounts.map(normalizeAccount) : [],
+        orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+        ledgerEntries: Array.isArray(parsed.ledgerEntries) ? parsed.ledgerEntries : []
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return seedData;
+      return shouldUseDemoBillingData() ? cloneRechargeOrderData(seedData) : emptyRechargeOrderData();
     }
   }
 
@@ -293,6 +293,22 @@ function normalizeAccount(account: RechargeAccount): RechargeAccount {
     frozenCredits: Number.isFinite(account.frozenCredits) ? account.frozenCredits : 0,
     updatedAt: account.updatedAt
   };
+}
+
+function emptyRechargeOrderData(): RechargeOrderData {
+  return { accounts: [], orders: [], ledgerEntries: [] };
+}
+
+function cloneRechargeOrderData(data: RechargeOrderData): RechargeOrderData {
+  return {
+    accounts: data.accounts.map((account) => ({ ...account })),
+    orders: data.orders.map((order) => ({ ...order })),
+    ledgerEntries: data.ledgerEntries.map((entry) => ({ ...entry }))
+  };
+}
+
+function shouldUseDemoBillingData(): boolean {
+  return process.env.STORE_COMMON_DEMO_DATA === "1" || process.env.STORE_COMMON_DEMO_DATA === "true";
 }
 
 function safeFilename(filename: string): string {
