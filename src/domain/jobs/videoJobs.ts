@@ -23,6 +23,8 @@ export interface VideoJob {
   updatedAt: string;
   providerTaskId?: string;
   providerModel?: string;
+  attemptCount?: number;
+  nextAttemptAt?: string;
   result?: { url: string; createdAt: string };
   error?: VideoError;
 }
@@ -60,7 +62,7 @@ export class VideoJobService {
   list(customerId: string) { return this.repository.allForCustomer(customerId); }
   get(id: string) { return this.repository.find(id); }
   async cancel(id: string) { const job = await this.repository.update(id, (current) => ["succeeded", "failed", "canceled"].includes(current.status) ? current : { ...current, status: "canceled" }); if (job?.status === "canceled") await this.settlement.onCanceled?.(job); return job; }
-  async runDueJobs(): Promise<void> { for (const job of await this.repository.all()) { if (["queued", "submitted"].includes(job.status) && !this.active.has(job.id)) { await this.run(job.id); return; } } }
+  async runDueJobs(): Promise<void> { for (const job of await this.repository.all()) { const nextAttempt = job.nextAttemptAt ? new Date(job.nextAttemptAt).getTime() : 0; if (["queued", "submitted"].includes(job.status) && !this.active.has(job.id) && (!nextAttempt || nextAttempt <= Date.now())) { await this.run(job.id); return; } } }
   async run(id: string): Promise<VideoJob | undefined> {
     if (this.active.has(id)) return this.get(id); this.active.add(id);
     try {
@@ -68,7 +70,7 @@ export class VideoJobService {
       if (job.status === "queued") {
         const created = await this.provider.create(job);
         const current = await this.repository.find(id); if (!current || current.status === "canceled") return current;
-        if (!created.ok) return this.fail(current, created.error);
+        if (!created.ok) return this.failOrRetry(current, created.error);
         const submitted = await this.repository.update(id, (item) => ({ ...item, status: "submitted", providerTaskId: created.task.id, providerModel: created.task.model, chargedCredits: item.reservedCredits }));
         if (submitted) await this.settlement.onSubmitted?.(submitted);
         return submitted;
@@ -80,6 +82,13 @@ export class VideoJobService {
       if (isFailure(status.status)) return this.fail(job, { code: "provider_unknown", message: "视频模型未能完成本次任务。", retryable: false });
       return job;
     } finally { this.active.delete(id); }
+  }
+  private async failOrRetry(job: VideoJob, error: VideoError) {
+    const attemptCount = (job.attemptCount ?? 0) + 1;
+    if (error.retryable && attemptCount <= 3) {
+      return this.repository.update(job.id, (item) => ({ ...item, status: "queued", attemptCount, nextAttemptAt: new Date(Date.now() + attemptCount * 20_000).toISOString(), error }));
+    }
+    return this.fail(job, error);
   }
   private async fail(job: VideoJob, error: VideoError) { const failed = await this.repository.update(job.id, (item) => ({ ...item, status: "failed", error })); if (failed) await this.settlement.onFailed?.(failed); return failed; }
 }
