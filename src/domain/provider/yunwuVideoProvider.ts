@@ -9,7 +9,7 @@ export class YunwuVideoProvider {
     const model = process.env.YUNWU_VIDEO_PRIMARY_MODEL?.trim() || "doubao-seedance-2-0-260128";
     const endpoint = process.env.YUNWU_VIDEO_PRIMARY_CREATE_PATH?.trim() || "/api/v3/contents/generations/tasks";
     try {
-      const response = await fetch(`${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`, { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model, content: [{ type: "text", text: input.prompt }, ...input.images.map((url) => ({ type: "image_url", image_url: { url }, role: "reference_image" }))], generate_audio: false, ratio: input.aspectRatio, duration: input.durationSeconds, watermark: false }), signal: AbortSignal.timeout(120_000) });
+      const response = await fetch(`${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`, { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify(await buildCreateBody({ ...input, model, endpoint })), signal: AbortSignal.timeout(120_000) });
       if (!response.ok) return responseFailure(response);
       const data = await response.json().catch(() => ({})) as Record<string, unknown>;
       const nested = data.data && typeof data.data === "object" ? data.data as Record<string, unknown> : {};
@@ -27,6 +27,34 @@ export class YunwuVideoProvider {
 }
 
 async function responseFailure(response: Response) { const message = (await response.text().catch(() => "")).slice(0, 500) || "视频模型请求失败。"; return fail(response.status === 429 ? "provider_rate_limited" : response.status < 500 ? "provider_bad_request" : "provider_unknown", response.status === 429 ? "当前视频任务较多，系统会稍后重试。" : message, response.status >= 500 || response.status === 429); }
+async function buildCreateBody(input: { prompt: string; images: string[]; aspectRatio: string; durationSeconds: number; model: string; endpoint: string }) {
+  if (input.model.startsWith("kling-")) {
+    return {
+      model_name: input.model,
+      prompt: input.prompt,
+      negative_prompt: "",
+      image: await klingImagePayload(input.images[0]),
+      image_tail: "",
+      aspect_ratio: input.aspectRatio,
+      duration: String(input.durationSeconds)
+    };
+  }
+  return {
+    model: input.model,
+    content: [{ type: "text", text: input.prompt }, ...input.images.map((url) => ({ type: "image_url", image_url: { url }, role: "reference_image" }))],
+    generate_audio: false,
+    ratio: input.aspectRatio,
+    duration: input.durationSeconds,
+    watermark: false
+  };
+}
+async function klingImagePayload(url: string): Promise<string> {
+  if (!url) throw new Error("视频任务缺少商品图片。");
+  if (url.startsWith("data:")) return url.split(",", 2)[1] ?? "";
+  const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new Error("商品图片无法提供给视频模型。");
+  return Buffer.from(await response.arrayBuffer()).toString("base64");
+}
 function fail(code: string, message: string, retryable: boolean): { ok: false; error: VideoError } { return { ok: false, error: { code, message, retryable } }; }
 function stringValue(value: unknown): string | undefined { return typeof value === "string" && value.trim() ? value : undefined; }
 function findStatus(value: unknown): string { if (!value || typeof value !== "object") return "processing"; const data = value as Record<string, unknown>; const nested = data.data && typeof data.data === "object" ? data.data as Record<string, unknown> : {}; return stringValue(nested.task_status) ?? stringValue(data.status) ?? "processing"; }
