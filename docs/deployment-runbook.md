@@ -53,6 +53,13 @@ STYLE_VISION_PROVIDER=openai_compatible
 STYLE_VISION_API_KEY=...
 STYLE_VISION_BASE_URL=https://yunwu.ai
 STYLE_VISION_MODEL=...
+
+# 阿里云短信找回密码（密钥只保存在服务器 .env.local）
+ALIYUN_SMS_ACCESS_KEY_ID=...
+ALIYUN_SMS_ACCESS_KEY_SECRET=...
+ALIYUN_SMS_SIGN_NAME=...
+ALIYUN_SMS_PASSWORD_RESET_TEMPLATE_CODE=...
+ALIYUN_SMS_MANUAL_RECOVERY_TEMPLATE_CODE=...
 ```
 
 如果后续接入视频、高清输出或公网回源能力，需要把对应的公网基础地址配置为 `http://47.120.21.152:6066`，确保供应商可以访问素材文件。
@@ -71,6 +78,7 @@ rsync -az --delete \
   --exclude 'public/feedback-screenshots' \
   --exclude 'public/recharge-proofs' \
   --exclude 'public/style-samples' \
+  --exclude 'public/account-recovery-proofs' \
   ./ root@47.120.21.152:"$COMMON_DEPLOY_DIR"/
 ```
 
@@ -144,3 +152,4 @@ tail -100 /var/log/nginx/error.log
 - 充值凭证、反馈截图、风格样本上传不会被 Nginx `413` 拦截。
 - PM2 进程为 `online`，日志没有持续重启或端口占用错误。
 - `.data-common` 和公开上传目录只属于通用百货分站。
+- 重置密码短信模板和人工找回审核通过模板均已在阿里云审核通过；模板参数使用 `code`。

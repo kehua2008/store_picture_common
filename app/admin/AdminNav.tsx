@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-type AdminNavKey = "overview" | "members" | "billing" | "recharge" | "feedback" | "style-library";
+type AdminNavKey = "overview" | "members" | "billing" | "recharge" | "feedback" | "account-recovery" | "style-library";
 
 const adminNavItems: Array<{ key: AdminNavKey; label: string; href: string }> = [
   { key: "overview", label: "后台总览", href: "/admin" },
@@ -10,6 +10,7 @@ const adminNavItems: Array<{ key: AdminNavKey; label: string; href: string }> = 
   { key: "billing", label: "财务管理", href: "/admin/billing" },
   { key: "recharge", label: "充值审核", href: "/admin/recharge-orders" },
   { key: "feedback", label: "反馈收件箱", href: "/admin/feedback-reports" },
+  { key: "account-recovery", label: "账号找回审核", href: "/admin/account-recovery" },
   { key: "style-library", label: "风格库后台", href: "/admin/style-library" }
 ];
 

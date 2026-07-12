@@ -13,7 +13,8 @@ const workbenches = [
   { title: "充值审核", href: "/admin/recharge-orders", desc: "核对付款方式、金额和截图，通过后入账，驳回时记录原因。" },
   { title: "财务流水", href: "/admin/billing", desc: "集中查看充值、扣费、冻结、释放和人工调账流水，可按用户和类型筛选。" },
   { title: "风格库后台", href: "/admin/style-library", desc: "管理通用类商品风格样本、解析状态、标签和发布到用户端的风格资产。" },
-  { title: "反馈收件箱", href: "/admin/feedback-reports", desc: "处理用户提交的问题反馈，标记有效、无效或已处理，并保留备注。" }
+  { title: "反馈收件箱", href: "/admin/feedback-reports", desc: "处理用户提交的问题反馈，标记有效、无效或已处理，并保留备注。" },
+  { title: "账号找回审核", href: "/admin/account-recovery", desc: "核验换号用户的账号找回申请，审核通过后向已验证的新手机号发送一次性重置验证码。" }
 ];
 
 const todayTasks = [

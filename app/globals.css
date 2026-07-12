@@ -7050,3 +7050,249 @@ pre {
 .freeRuleList em {
   color: var(--muted-strong);
   font-size: 12px;
+}
+
+.forgotPasswordLink {
+  color: #0f6fcf;
+  font-size: 12px;
+  font-weight: 850;
+  justify-self: end;
+  text-decoration: none;
+}
+
+.recoveryPage {
+  background: linear-gradient(145deg, #f8fcff 0%, #e8f5ff 52%, #d3eaff 100%);
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.recoveryHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto 48px;
+  max-width: 1040px;
+}
+
+.recoveryHeader > a:last-child,
+.recoveryHelp a {
+  color: #0f6fcf;
+  font-size: 13px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.recoveryCard {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(238, 248, 255, 0.83));
+  border: 1px solid rgba(47, 128, 237, 0.22);
+  border-radius: 8px;
+  box-shadow: 0 28px 70px rgba(24, 102, 182, 0.16);
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 540px;
+  padding: 40px;
+}
+
+.recoveryApplicationCard {
+  max-width: 680px;
+}
+
+.recoveryEyebrow {
+  color: #1284ca;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+}
+
+.recoveryCard h1 {
+  color: #0d396f;
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.recoveryCard > p,
+.recoveryCard label {
+  color: #55708d;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.recoveryCard label {
+  display: grid;
+  font-weight: 850;
+  gap: 7px;
+}
+
+.recoveryCard input,
+.recoveryCard textarea {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(72, 132, 190, 0.28);
+  border-radius: 6px;
+  color: #173b63;
+  min-height: 44px;
+  outline: none;
+  padding: 11px 12px;
+  width: 100%;
+}
+
+.recoveryCard textarea {
+  min-height: 132px;
+  resize: vertical;
+}
+
+.recoveryCard input:focus,
+.recoveryCard textarea:focus {
+  border-color: #1688df;
+  box-shadow: 0 0 0 3px rgba(22, 136, 223, 0.12);
+}
+
+.recoveryModeSwitch,
+.recoveryCodeRow {
+  align-items: end;
+  display: flex;
+  gap: 10px;
+}
+
+.recoveryModeSwitch button,
+.recoveryCodeRow button {
+  background: #eef6ff;
+  border: 1px solid rgba(47, 128, 237, 0.26);
+  border-radius: 6px;
+  color: #1766b5;
+  font-size: 13px;
+  font-weight: 900;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.recoveryModeSwitch button.active,
+.recoveryPrimaryButton {
+  background: linear-gradient(135deg, #137de0, #17b1d0);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.recoveryCodeRow label {
+  flex: 1;
+}
+
+.recoveryPrimaryButton {
+  border: 0;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 950;
+  min-height: 48px;
+}
+
+.recoveryPrimaryButton:disabled,
+.recoveryCodeRow button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.recoveryStatus {
+  background: rgba(226, 242, 255, 0.74);
+  border: 1px solid rgba(47, 128, 237, 0.14);
+  border-radius: 6px;
+  color: #30638e;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.recoveryHelp {
+  margin: 0;
+}
+
+.recoveryUpload {
+  align-items: center;
+  background: rgba(231, 245, 255, 0.68);
+  border: 1px dashed rgba(22, 136, 223, 0.46);
+  border-radius: 6px;
+  cursor: pointer;
+  min-height: 94px;
+  padding: 16px;
+  text-align: center;
+}
+
+.recoveryUpload input {
+  display: none;
+}
+
+.recoveryUpload strong {
+  color: #1269b6;
+}
+
+.recoveryUpload span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.recoveryProofGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.recoveryProofGrid article {
+  aspect-ratio: 1;
+  border: 1px solid rgba(47, 128, 237, 0.2);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.recoveryProofGrid img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.recoveryProofGrid button {
+  background: rgba(9, 35, 63, 0.72);
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  height: 24px;
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 24px;
+}
+
+@media (max-width: 760px) {
+  .recoveryPage {
+    padding: 16px;
+  }
+
+  .recoveryHeader {
+    margin-bottom: 28px;
+  }
+
+  .recoveryHeader .recordsBrand span {
+    display: none;
+  }
+
+  .recoveryCard {
+    padding: 24px 18px;
+  }
+
+  .recoveryCard h1 {
+    font-size: 25px;
+  }
+
+  .recoveryModeSwitch,
+  .recoveryCodeRow {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .recoveryModeSwitch button,
+  .recoveryCodeRow button {
+    flex: 1 1 auto;
+  }
+
+  .recoveryCodeRow label {
+    flex-basis: 100%;
+  }
+}

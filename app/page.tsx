@@ -502,6 +502,7 @@ export default function Home() {
             </div>
             <input inputMode="tel" placeholder="手机号" value={authPhone} onChange={(event) => setAuthPhone(event.target.value.replace(/\D/g, "").slice(0, 11))} />
             <input placeholder="密码，至少 8 位" type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} />
+            {authMode === "login" ? <Link className="forgotPasswordLink" href="/reset-password" onClick={() => setUserPanelOpen(false)}>忘记密码？</Link> : null}
             <input placeholder="当前使用者，例如：美工A / 运营B" value={authActorName} onChange={(event) => setAuthActorName(event.target.value)} />
             <button type="button" onClick={() => void submitAuth()}>{authMode === "register" ? "注册并登录" : "登录账号"}</button>
             <span>{authStatus}</span>

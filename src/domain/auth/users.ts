@@ -109,6 +109,24 @@ export class FileUserRepository {
     return updated;
   }
 
+  async resetPassword(userId: string, password: string): Promise<User | undefined> {
+    validatePassword(password);
+    const data = await this.readData();
+    const user = data.users.find((item) => item.id === userId);
+    if (!user) return undefined;
+
+    const updated: User = {
+      ...user,
+      passwordHash: hashPassword(password),
+      updatedAt: new Date().toISOString()
+    };
+    data.users = data.users.map((item) => item.id === userId ? updated : item);
+    // A password reset ends every prior login. The route creates exactly one fresh session afterwards.
+    data.sessions = data.sessions.filter((session) => session.userId !== userId);
+    await this.writeData(data);
+    return updated;
+  }
+
   async createSession(userId: string, actorName?: string): Promise<AuthSession> {
     const data = await this.readData();
     const now = Date.now();
