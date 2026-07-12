@@ -23,6 +23,7 @@ type UploadedFile = {
   name: string;
   size: number;
   previewUrl: string;
+  file: File;
 };
 
 type CurrentUser = {
@@ -51,7 +52,24 @@ type UserJobView = {
   id: string;
   status?: string;
   createdAt?: string;
-  results?: unknown[];
+  progress?: { completed?: number; total?: number };
+  error?: { message?: string };
+  results?: Array<{ id?: string; url?: string; mimeType?: string }>;
+  result?: { url?: string };
+};
+
+type ImageGenerationSettings = {
+  targetWidth: number;
+  targetHeight: number;
+  total: number;
+  taskLabel: string;
+};
+
+type VideoGenerationSettings = {
+  prompt: string;
+  aspectRatio: string;
+  durationSeconds: number;
+  outputResolution: "480p" | "720p";
 };
 
 type OptimizedAsset = {
@@ -245,7 +263,8 @@ function fileToUpload(file: File): UploadedFile {
     id: `${file.name}-${file.lastModified}-${file.size}`,
     name: file.name,
     size: file.size,
-    previewUrl: URL.createObjectURL(file)
+    previewUrl: URL.createObjectURL(file),
+    file
   };
 }
 
@@ -313,6 +332,8 @@ export default function Home() {
   const [userPanelOpen, setUserPanelOpen] = useState(false);
   const [userJobs, setUserJobs] = useState<UserJobView[]>([]);
   const [userJobsStatus, setUserJobsStatus] = useState("登录后查看近 24 小时生成记录");
+  const [latestImageJob, setLatestImageJob] = useState<UserJobView>();
+  const [latestVideoJob, setLatestVideoJob] = useState<UserJobView>();
 
   const imagePrompt = useMemo(
     () => buildCommonPrompt({ taskId: activeTask, categoryId: category, styleId: style, strengthId: strength, merchantNote }),
@@ -329,6 +350,30 @@ export default function Home() {
   useEffect(() => {
     void refreshCurrentUser();
   }, []);
+
+  useEffect(() => {
+    if (!latestImageJob || !["queued", "running"].includes(latestImageJob.status ?? "")) return;
+    const timer = window.setInterval(async () => {
+      const response = await fetch("/api/generation-jobs").catch(() => undefined);
+      const body = await response?.json().catch(() => ({}));
+      const jobs = Array.isArray(body?.jobs) ? body.jobs as UserJobView[] : [];
+      const next = jobs.find((job) => job.id === latestImageJob.id);
+      if (next) setLatestImageJob(next);
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [latestImageJob?.id, latestImageJob?.status]);
+
+  useEffect(() => {
+    if (!latestVideoJob || !["queued", "submitted"].includes(latestVideoJob.status ?? "")) return;
+    const timer = window.setInterval(async () => {
+      const response = await fetch("/api/video-jobs").catch(() => undefined);
+      const body = await response?.json().catch(() => ({}));
+      const jobs = Array.isArray(body?.jobs) ? body.jobs as UserJobView[] : [];
+      const next = jobs.find((job) => job.id === latestVideoJob.id);
+      if (next) setLatestVideoJob(next);
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [latestVideoJob?.id, latestVideoJob?.status]);
 
   function enterVideoChoice() {
     setView("video");
@@ -400,7 +445,7 @@ export default function Home() {
     void refreshUserJobs();
   }
 
-  async function createImageJob() {
+  async function createImageJob(settings: ImageGenerationSettings) {
     if (!imageFiles.length) {
       setCopyStatus("请先上传商品素材，再点击生成图片");
       return;
@@ -413,19 +458,20 @@ export default function Home() {
       return;
     }
 
-    const task = tasks.find((item) => item.id === activeTask);
     const selectedCategory = categories.find((item) => item.id === category);
     setCopyStatus("正在提交生图任务...");
+    const form = new FormData();
+    imageFiles.forEach((item) => form.append("images", item.file, item.name));
+    form.set("taskLabel", settings.taskLabel);
+    form.set("categoryLabel", selectedCategory?.label ?? "其他百货");
+    form.set("promptSummary", imagePrompt.summary);
+    form.set("promptBody", imagePrompt.body);
+    form.set("targetWidth", String(settings.targetWidth));
+    form.set("targetHeight", String(settings.targetHeight));
+    form.set("total", String(settings.total));
     const response = await fetch("/api/generation-jobs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        taskLabel: task?.label,
-        categoryLabel: selectedCategory?.label,
-        promptSummary: imagePrompt.summary,
-        promptBody: imagePrompt.body,
-        total: selectedSuite.tasks.length
-      })
+      body: form
     }).catch(() => undefined);
     const body = await response?.json().catch(() => ({}));
     if (!response?.ok) {
@@ -433,8 +479,38 @@ export default function Home() {
       if (response?.status === 401) setUserPanelOpen(true);
       return;
     }
-    setCopyStatus("生图任务已提交，可到生成记录查看进度");
+    setLatestImageJob(body.job);
+    setCopyStatus("生图任务已提交，右侧会自动更新生成进度");
     void refreshUserJobs();
+  }
+
+  async function createVideoJob(settings: VideoGenerationSettings) {
+    const imageSources = videoFiles.filter((item) => item.file.type.startsWith("image/"));
+    if (!imageSources.length) {
+      setVideoCopyStatus("请先上传至少一张商品图片，再提交生视频任务");
+      return;
+    }
+    if (!isLoggedIn) {
+      setAuthMode("login");
+      setUserPanelOpen(true);
+      setAuthStatus("请先登录或注册账号，再提交生视频任务");
+      return;
+    }
+    const form = new FormData();
+    imageSources.forEach((item) => form.append("images", item.file, item.name));
+    form.set("prompt", settings.prompt);
+    form.set("aspectRatio", settings.aspectRatio);
+    form.set("durationSeconds", String(settings.durationSeconds));
+    form.set("outputResolution", settings.outputResolution);
+    setVideoCopyStatus("正在提交生视频任务...");
+    const response = await fetch("/api/video-jobs", { method: "POST", body: form }).catch(() => undefined);
+    const body = await response?.json().catch(() => ({}));
+    if (!response?.ok) {
+      setVideoCopyStatus(`提交失败：${body?.message ?? authErrorMessage(body?.error)}`);
+      return;
+    }
+    setLatestVideoJob(body.job);
+    setVideoCopyStatus("生视频任务已提交，右侧会自动更新进度");
   }
 
   async function logout() {
@@ -664,6 +740,7 @@ export default function Home() {
           copyStatus={copyStatus}
           copyPrompt={() => copyText(imagePrompt.body, setCopyStatus)}
           createImageJob={createImageJob}
+          latestJob={latestImageJob}
         />
       ) : (
         <VideoWorkbench
@@ -689,6 +766,8 @@ export default function Home() {
           prompt={videoPrompt}
           copyStatus={videoCopyStatus}
           copyPrompt={() => copyText(videoPrompt.body, setVideoCopyStatus)}
+          createVideoJob={createVideoJob}
+          latestJob={latestVideoJob}
         />
       )}
     </form>
@@ -869,7 +948,8 @@ function ImageWorkbench(input: {
   selectedSuiteTaskCount: number;
   copyStatus: string;
   copyPrompt: () => void;
-  createImageJob: () => void;
+  createImageJob: (settings: ImageGenerationSettings) => void;
+  latestJob?: UserJobView;
 }) {
   const [categorySearchQuery, setCategorySearchQuery] = useState("");
   const [categoryGroupId, setCategoryGroupId] = useState(commonCategoryGroups[0].id);
@@ -1265,7 +1345,12 @@ function ImageWorkbench(input: {
         </label>
         <div className="actionRow">
           <div className="actionButtons">
-            <button className="generateButton" type="button" onClick={input.createImageJob}>生成图片</button>
+            <button className="generateButton" type="button" onClick={() => input.createImageJob({
+              targetWidth: selectedSpecId === "custom" ? Number(customWidth) || 800 : selectedSpec?.targetWidth ?? 800,
+              targetHeight: selectedSpecId === "custom" ? Number(customHeight) || 800 : selectedSpec?.targetHeight ?? 800,
+              total: Math.max(1, Object.values(imageTypeCounts).reduce((sum, count) => sum + count, 0)),
+              taskLabel: currentTask.label
+            })}>生成图片</button>
             <button className="secondaryActionButton" type="button" onClick={input.copyPrompt}>复制提示词</button>
           </div>
           <span>{input.copyStatus}</span>
@@ -1278,8 +1363,9 @@ function ImageWorkbench(input: {
         summary={input.prompt.summary}
         subline={`当前套餐：${input.selectedSuiteLabel}，包含 ${input.selectedSuiteTaskCount} 个生成任务`}
         body={input.prompt.body}
-        emptyText="真实生图接口接入后，右侧会展示生成结果、进度和下载入口。"
+        emptyText="任务提交后会在这里显示真实生成进度和可下载结果。"
         copyPrompt={input.copyPrompt}
+        job={input.latestJob}
       />
     </>
   );
@@ -1308,6 +1394,8 @@ function VideoWorkbench(input: {
   prompt: { summary: string; body: string };
   copyStatus: string;
   copyPrompt: () => void;
+  createVideoJob: (settings: VideoGenerationSettings) => void;
+  latestJob?: UserJobView;
 }) {
   const [videoSpec, setVideoSpec] = useState<(typeof videoSpecOptions)[number]["id"]>("vertical");
   const [referenceMode, setReferenceMode] = useState<(typeof referenceModeOptions)[number]["id"]>("medium");
@@ -1644,6 +1732,12 @@ function VideoWorkbench(input: {
           <button className="generateButton" type="button" onClick={input.videoCreationMode === "reference" ? input.copyPrompt : showGeneratedPrompt}>
             {input.videoCreationMode === "reference" ? "生成参考视频提示词" : "生成一句话视频提示词"}
           </button>
+          <button className="secondaryActionButton" type="button" onClick={() => input.createVideoJob({
+            prompt: generatedVideoPrompt || input.prompt.body,
+            aspectRatio: currentSpec.id === "vertical" ? "9:16" : currentSpec.id === "portrait_4_5" ? "4:5" : currentSpec.id === "ecommerce_3_4" ? "3:4" : currentSpec.id === "square" ? "1:1" : "16:9",
+            durationSeconds: Math.max(1, Math.min(15, Number(videoDuration === "custom" ? customDuration : videoDuration) || 5)),
+            outputResolution: videoQuality
+          })}>开始生成视频</button>
           <span>{input.videoCreationMode === "reference" ? input.copyStatus : (promptDialogOpen ? "提示词已生成，可继续提交补充意见" : "生成后会在下方对话框中展示提示词")}</span>
         </div>
 
@@ -1680,8 +1774,9 @@ function VideoWorkbench(input: {
         summary={input.prompt.summary}
         subline={`${currentSpec.spec} · ${videoQuality.toUpperCase()} · ${currentDuration}`}
         body={input.prompt.body}
-        emptyText="真实生视频接口接入后，右侧会展示视频任务进度、预览和高清输出入口。"
+        emptyText="任务提交后会显示真实视频状态与结果链接。"
         copyPrompt={input.copyPrompt}
+        job={input.latestJob}
       />
     </>
   );
@@ -1715,17 +1810,24 @@ function ResultRail(input: {
   body: string;
   emptyText: string;
   copyPrompt: () => void;
+  job?: UserJobView;
 }) {
   const isVideo = input.title.includes("视频");
+  const progress = input.job?.progress;
+  const resultCount = input.job?.results?.length ?? 0;
+  const progressText = progress ? `${progress.completed ?? 0}/${progress.total ?? 0}` : "0/0";
+  const stateText = input.job?.status === "succeeded" ? "已完成" : input.job?.status === "partial_failed" ? "部分完成" : input.job?.status === "failed" ? "生成失败" : input.job?.status === "queued" ? "等待队列" : input.job?.status === "running" ? "正在生成" : input.modeLabel;
+  const firstResult = input.job?.results?.[0];
+  const videoUrl = input.job?.result?.url;
   return (
     <aside className={isVideo ? "resultRail videoResultRail" : "resultRail"}>
       <div className="queueCard">
         <span>{isVideo ? "视频任务状态" : "图片任务状态"}</span>
-        <strong>{input.modeLabel}</strong>
+        <strong>{stateText}</strong>
         <div className="queueMeta">
-          <div className="queueStat"><b>0</b><small>任务</small></div>
-          <div className="queueStat"><b>0</b><small>{isVideo ? "视频" : "图片"}</small></div>
-          <div className="queueStat"><b>0/0</b><small>进度</small></div>
+          <div className="queueStat"><b>{input.job ? 1 : 0}</b><small>任务</small></div>
+          <div className="queueStat"><b>{resultCount}</b><small>{isVideo ? "视频" : "图片"}</small></div>
+          <div className="queueStat"><b>{progressText}</b><small>进度</small></div>
         </div>
         <div className="progressBar"><i /></div>
       </div>
@@ -1733,12 +1835,13 @@ function ResultRail(input: {
       <div className="resultPanel">
         <div className="panelHeader">
           <span>{input.title}</span>
-          <strong>0 个结果</strong>
+          <strong>{resultCount} 个结果</strong>
         </div>
-        <div className="resultEmpty">
-          <strong>等待生成</strong>
-          <span>{input.emptyText}</span>
-        </div>
+        {videoUrl && isVideo ? (
+          <div className="resultEmpty"><a href={videoUrl} target="_blank" rel="noreferrer">查看生成视频</a></div>
+        ) : firstResult?.url && !isVideo ? (
+          <div className="resultEmpty"><img alt="生成结果" src={firstResult.url} /><a href={firstResult.url} download>下载图片</a></div>
+        ) : <div className="resultEmpty"><strong>{input.job?.error?.message ?? "等待生成"}</strong><span>{input.emptyText}</span></div>}
       </div>
 
       {isVideo ? (
