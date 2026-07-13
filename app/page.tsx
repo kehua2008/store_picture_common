@@ -1352,14 +1352,14 @@ function ImageWorkbench(input: {
           </div>
         </section>
         <UploadPanel mode="image" files={input.files} dragTarget={input.dragTarget} setDragTarget={input.setDragTarget} handleDrop={input.handleDrop} handleFileInput={input.handleFileInput} onRemove={input.removeFile} />
-        <div className="actionRow">
+        <div className="actionRow imageActionRow">
           <div className="actionButtons">
             <button className="generateButton" type="button" onClick={() => input.createImageJob({
               targetWidth: selectedSpecId === "custom" ? Number(customWidth) || 800 : selectedSpec?.targetWidth ?? 800,
               targetHeight: selectedSpecId === "custom" ? Number(customHeight) || 800 : selectedSpec?.targetHeight ?? 800,
               total: Math.max(1, Object.values(imageTypeCounts).reduce((sum, count) => sum + count, 0)),
               taskLabel: currentTask.label
-            })}>生成图片</button>
+            })}>一键生图</button>
           </div>
           {input.copyStatus ? <span>{input.copyStatus}</span> : null}
         </div>

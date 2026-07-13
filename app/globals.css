@@ -1630,6 +1630,20 @@ pre {
   width: 100%;
 }
 
+.imageActionRow {
+  flex-direction: column;
+  justify-content: center;
+}
+
+.imageActionRow .actionButtons {
+  justify-content: center;
+  width: auto;
+}
+
+.imageActionRow span {
+  text-align: center;
+}
+
 .actionRow span {
   color: var(--muted);
   font-size: 13px;
@@ -4167,6 +4181,15 @@ pre {
   .actionButtons {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .imageActionRow .actionButtons {
+    display: flex;
+    width: auto;
+  }
+
+  .imageActionRow .generateButton {
+    width: auto;
   }
 
   .generateButton,
