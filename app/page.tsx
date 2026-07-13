@@ -312,7 +312,7 @@ export default function Home() {
   const [strength, setStrength] = useState<StrengthId>(defaultStrength);
   const [suite, setSuite] = useState<SuiteId>(defaultSuite);
   const [merchantNote, setMerchantNote] = useState("");
-  const [copyStatus, setCopyStatus] = useState("提示词随选项实时更新");
+  const [copyStatus, setCopyStatus] = useState("");
 
   const [videoGoal, setVideoGoal] = useState<VideoGoalId>("handDemo");
   const [videoPlatform, setVideoPlatform] = useState<VideoPlatformId>("douyin");
@@ -531,6 +531,16 @@ export default function Home() {
     else setImageFiles((current) => [...uploads, ...current].slice(0, 12));
   }
 
+  function removeFile(id: string, target: "image" | "video") {
+    const remove = (current: UploadedFile[]) => {
+      const removed = current.find((file) => file.id === id);
+      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      return current.filter((file) => file.id !== id);
+    };
+    if (target === "image") setImageFiles(remove);
+    else setVideoFiles(remove);
+  }
+
   function handleFileInput(event: ChangeEvent<HTMLInputElement>, target: "image" | "video") {
     if (event.target.files) addFiles(event.target.files, target);
     event.target.value = "";
@@ -722,6 +732,7 @@ export default function Home() {
           setDragTarget={setDragTarget}
           handleDrop={handleDrop}
           handleFileInput={handleFileInput}
+          removeFile={(id) => removeFile(id, "image")}
           category={category}
           setCategory={setCategory}
           activeTask={activeTask}
@@ -738,7 +749,6 @@ export default function Home() {
           selectedSuiteLabel={selectedSuite.label}
           selectedSuiteTaskCount={selectedSuite.tasks.length}
           copyStatus={copyStatus}
-          copyPrompt={() => copyText(imagePrompt.body, setCopyStatus)}
           createImageJob={createImageJob}
           latestJob={latestImageJob}
         />
@@ -749,6 +759,7 @@ export default function Home() {
           setDragTarget={setDragTarget}
           handleDrop={handleDrop}
           handleFileInput={handleFileInput}
+          removeFile={(id) => removeFile(id, "video")}
           category={category}
           setCategory={setCategory}
           style={style}
@@ -822,6 +833,7 @@ function UploadPanel(input: {
   dropNote?: string;
   accept?: string;
   onFiles?: (files: FileList | File[]) => void;
+  onRemove?: (id: string) => void;
 }) {
   return (
     <section className="uploadSurface compact">
@@ -873,6 +885,7 @@ function UploadPanel(input: {
               <strong>{file.name}</strong>
               <small>{formatFileSize(file.size)}</small>
             </div>
+            {input.onRemove ? <button aria-label={`删除 ${file.name}`} className="removeUploadButton" type="button" onClick={() => input.onRemove?.(file.id)}>×</button> : null}
           </article>
         )) : <p>暂无素材。上传后会显示在这里。</p>}
         </div>
@@ -931,6 +944,7 @@ function ImageWorkbench(input: {
   setDragTarget: (target: "image" | "video" | undefined) => void;
   handleDrop: (event: DragEvent<HTMLLabelElement>, target: "image" | "video") => void;
   handleFileInput: (event: ChangeEvent<HTMLInputElement>, target: "image" | "video") => void;
+  removeFile: (id: string) => void;
   category: CategoryId;
   setCategory: (id: CategoryId) => void;
   activeTask: TaskId;
@@ -947,7 +961,6 @@ function ImageWorkbench(input: {
   selectedSuiteLabel: string;
   selectedSuiteTaskCount: number;
   copyStatus: string;
-  copyPrompt: () => void;
   createImageJob: (settings: ImageGenerationSettings) => void;
   latestJob?: UserJobView;
 }) {
@@ -1338,11 +1351,7 @@ function ImageWorkbench(input: {
             <TaskSummaryItem index="04" label="图片类型" value={currentTask.label} />
           </div>
         </section>
-        <UploadPanel mode="image" files={input.files} dragTarget={input.dragTarget} setDragTarget={input.setDragTarget} handleDrop={input.handleDrop} handleFileInput={input.handleFileInput} />
-        <label className="noteField mainNoteField">
-          <span>商品补充说明</span>
-          <textarea value={input.merchantNote} onChange={(event) => input.setMerchantNote(event.target.value)} placeholder="例如：重点展示防滑底、容量大、可折叠、礼盒装、适合厨房台面..." />
-        </label>
+        <UploadPanel mode="image" files={input.files} dragTarget={input.dragTarget} setDragTarget={input.setDragTarget} handleDrop={input.handleDrop} handleFileInput={input.handleFileInput} onRemove={input.removeFile} />
         <div className="actionRow">
           <div className="actionButtons">
             <button className="generateButton" type="button" onClick={() => input.createImageJob({
@@ -1351,9 +1360,8 @@ function ImageWorkbench(input: {
               total: Math.max(1, Object.values(imageTypeCounts).reduce((sum, count) => sum + count, 0)),
               taskLabel: currentTask.label
             })}>生成图片</button>
-            <button className="secondaryActionButton" type="button" onClick={input.copyPrompt}>复制提示词</button>
           </div>
-          <span>{input.copyStatus}</span>
+          {input.copyStatus ? <span>{input.copyStatus}</span> : null}
         </div>
       </main>
 
@@ -1364,7 +1372,6 @@ function ImageWorkbench(input: {
         subline={`当前套餐：${input.selectedSuiteLabel}，包含 ${input.selectedSuiteTaskCount} 个生成任务`}
         body={input.prompt.body}
         emptyText="任务提交后会在这里显示真实生成进度和可下载结果。"
-        copyPrompt={input.copyPrompt}
         job={input.latestJob}
       />
     </>
@@ -1377,6 +1384,7 @@ function VideoWorkbench(input: {
   setDragTarget: (target: "image" | "video" | undefined) => void;
   handleDrop: (event: DragEvent<HTMLLabelElement>, target: "image" | "video") => void;
   handleFileInput: (event: ChangeEvent<HTMLInputElement>, target: "image" | "video") => void;
+  removeFile: (id: string) => void;
   category: CategoryId;
   setCategory: (id: CategoryId) => void;
   style: StyleId;
@@ -1679,6 +1687,7 @@ function VideoWorkbench(input: {
               setDragTarget={input.setDragTarget}
               handleDrop={input.handleDrop}
               handleFileInput={input.handleFileInput}
+              onRemove={input.removeFile}
               title={input.videoCreationMode === "reference" ? "商品素材" : "商品图素材"}
               desc={input.videoCreationMode === "reference" ? "必填，支持商品图、包装图、细节图或商品短视频；商品素材决定商品本身。" : "必填，用商品图锁定外形、材质、包装和主要卖点。"}
               dropLabel={input.videoCreationMode === "reference" ? "上传百货商品素材" : "点击或拖拽上传商品图"}
@@ -1698,6 +1707,11 @@ function VideoWorkbench(input: {
                   handleDrop={input.handleDrop}
                   handleFileInput={input.handleFileInput}
                   onFiles={addReferenceFiles}
+                  onRemove={(id) => setReferenceFiles((current) => {
+                    const removed = current.find((file) => file.id === id);
+                    if (removed) URL.revokeObjectURL(removed.previewUrl);
+                    return current.filter((file) => file.id !== id);
+                  })}
                   title="上传参考视频"
                   desc="上传你想参考的短视频，系统会按当前参考强度处理。"
                   dropLabel="上传参考视频"
@@ -1775,7 +1789,6 @@ function VideoWorkbench(input: {
         subline={`${currentSpec.spec} · ${videoQuality.toUpperCase()} · ${currentDuration}`}
         body={input.prompt.body}
         emptyText="任务提交后会显示真实视频状态与结果链接。"
-        copyPrompt={input.copyPrompt}
         job={input.latestJob}
       />
     </>
@@ -1809,7 +1822,6 @@ function ResultRail(input: {
   subline: string;
   body: string;
   emptyText: string;
-  copyPrompt: () => void;
   job?: UserJobView;
 }) {
   const isVideo = input.title.includes("视频");

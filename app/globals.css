@@ -1375,6 +1375,21 @@ small {
   padding: 8px;
 }
 
+.removeUploadButton {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: #6a83a0;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+  padding: 4px 6px;
+}
+
+.removeUploadButton:hover {
+  color: #e55757;
+}
+
 .fileList img {
   background: #e6f4ff;
   border-radius: 6px;
