@@ -27,6 +27,7 @@ export async function POST(request: Request) {
   if (auth.user.status !== "active") return NextResponse.json({ error: "account_suspended", message: "账号已暂停使用。" }, { status: 403 });
   const parsed = requestSchema.safeParse(await request.json().catch(() => undefined));
   if (!parsed.success) return NextResponse.json({ error: "invalid_video_prompt_writer_request", message: "提示词代写请求参数不完整。" }, { status: 400 });
+  if (parsed.data.productImages.reduce((total, image) => total + image.length, 0) > 18_000_000) return NextResponse.json({ error: "video_prompt_images_too_large", message: "商品图片用于理解的预览数据过大，请减少素材数量后重试。" }, { status: 413 });
   if (parsed.data.mode === "revise" && (!parsed.data.currentScript?.trim() || !parsed.data.revision?.trim())) {
     return NextResponse.json({ error: "missing_revision", message: "请先提供当前提示词和补充修改意见。" }, { status: 400 });
   }
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof VideoPromptWriterError) return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
+    console.error("video_prompt_writer_failed", error);
     return NextResponse.json({ error: "video_prompt_writer_failed", message: "AI提示词代写失败，请稍后重试。" }, { status: 500 });
   }
 }

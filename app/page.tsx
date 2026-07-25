@@ -356,6 +356,32 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+async function fileToPromptImageDataUrl(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) return fileToDataUrl(file);
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("商品图片无法读取。"));
+      element.src = sourceUrl;
+    });
+    const maxSide = 1280;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return fileToDataUrl(file);
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
 function aspectRatioForVideoSpec(spec: (typeof videoSpecOptions)[number]["id"]): string {
   if (spec === "vertical") return "9:16";
   if (spec === "portrait_4_5") return "4:5";
@@ -2047,7 +2073,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
     setStatus(mode === "draft" ? "AI正在读取商品图并代写提示词..." : "AI正在按补充意见重写提示词...");
     try {
       const productImages = await Promise.all(
-        input.files.filter((file) => file.file.type.startsWith("image/")).slice(0, 6).map((file) => fileToDataUrl(file.file))
+        input.files.filter((file) => file.file.type.startsWith("image/")).slice(0, 6).map((file) => fileToPromptImageDataUrl(file.file))
       );
       const result = await requestVideoPromptWriter({
         mode,
