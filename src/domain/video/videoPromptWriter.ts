@@ -58,7 +58,7 @@ export class OpenAICompatibleVideoPromptWriter {
               "The script must be a concrete shot-by-shot prompt for a video-generation model.",
               "Treat every uploaded image as a multi-angle fact package for ONE same product, not as an ordered storyboard or different products. Preserve facts jointly inferred from all images. Before writing scenes, assess the product type, physical scale, whether hand interaction is credible, preferred presentation approaches, and approaches that must be avoided. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
               "Do not add brands, watermarks, QR codes, prices, certifications, unsupported claims, or nonexistent product features.",
-              "plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges, verified and presentation. presentation contains productType, scale (portable|large|unknown), handInteraction (recommended|conditional|avoid), preferredApproaches and forbiddenApproaches. When video type is AI智能判断, never default to hands: cars, large appliances, furniture and large equipment use overall, structure, environment or movement shots; small portable products may use hands only when an action proves a visible fact. When video type is 手持演示 but the product is too large, use hand-scale, local controls or real-use context instead of pretending it can be held. Every scene lasts five seconds or less, has one visual action, requiredProductFacts, narration and caption. Never assign images to scenes by upload order or mention image/material numbers. fallbackReferenceIndex is optional internal-only metadata for a single-image outage fallback; if used, choose it only from visual suitability and never mention it in any visible copy."
+              "plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges, verified and presentation. presentation contains productType, scale (portable|large|unknown), handInteraction (recommended|conditional|avoid), preferredApproaches and forbiddenApproaches. Return directorBeats for the COMPLETE video timeline. Each beat has startSeconds, endSeconds, visualSubject, cameraMovement, action, narration and caption. The beat count, pacing and narrative order are fully director-led; do not force a product reveal, detail, use-scene or call-to-action template. Beats must cover the selected duration continuously with no gaps or overlaps. scenes is server-internal and must not be returned. When video type is AI智能判断, never default to hands: cars, large appliances, furniture and large equipment use overall, structure, environment or movement shots; small portable products may use hands only when an action proves a visible fact. When video type is 手持演示 but the product is too large, use hand-scale, local controls or real-use context instead of pretending it can be held. Never assign images to beats by upload order or mention image/material numbers."
             ].join(" ")
           },
           { role: "user", content: buildUserContent(input) }
@@ -75,7 +75,7 @@ export class OpenAICompatibleVideoPromptWriter {
     const planInput = toPlanInput(input);
     const plan = normalizeVideoCreativePlan(parsed.plan, planInput);
     return {
-      script: limitScript(parsed.script || scriptFromVideoCreativePlan(plan)),
+      script: limitScript(scriptFromVideoCreativePlan(plan)),
       summary: parsed.summary || (input.mode === "revise" ? "已按补充意见重写视频提示词。" : "已根据商品图和需求生成视频提示词。"),
       plan,
       provider: providerName(this.options.baseUrl),
@@ -106,9 +106,9 @@ function buildUserContent(input: VideoPromptWriterInput): Array<Record<string, u
       "- plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges and verified.",
       "- plan.productProfile.presentation must contain productType, scale (portable|large|unknown), handInteraction (recommended|conditional|avoid), preferredApproaches and forbiddenApproaches. It is an internal factual decision that controls all scenes.",
       "- All images show one product from different views. They are a unified fact package, not a sequence and not a requirement to show each one.",
-      "- plan.scenes must contain exactly one 5-second-or-less scene per 5 seconds of duration. Each scene has purpose, requiredProductFacts, visualPrompt, narration and caption. Do not use source image numbers or assign a source image to a scene.",
+      "- plan.directorBeats must cover the entire selected duration continuously, with no gaps or overlaps. Each beat has startSeconds, endSeconds, visualSubject, cameraMovement, action, narration and caption. Use a varied director-led rhythm instead of a fixed three-part template.",
       "- If video type is AI智能判断, infer a credible presentation from the images. Do not add hands by default. Cars, large appliances, furniture and large equipment must not be described as hand-held. If video type is 手持演示 and the product is too large, use scale, local controls or real-use context instead of a false holding action.",
-      "- Keep within selected duration; product remains visible and recognizable.",
+      "- Keep within selected duration. Do not force a fixed opening, detail beat, scenario beat or call-to-action; choose the sequence that best serves the product and user brief.",
       "- Do not invent functions, materials, text, packaging, accessories, people, or a scene unsupported by the product image and brief."
     ].join("\n")
   ].filter(Boolean).join("\n\n");

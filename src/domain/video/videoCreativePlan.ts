@@ -37,11 +37,24 @@ export type VideoScene = {
   caption: string;
 };
 
+export type DirectorBeat = {
+  id: string;
+  index: number;
+  startSeconds: number;
+  endSeconds: number;
+  visualSubject: string;
+  cameraMovement: string;
+  action: string;
+  narration: string;
+  caption: string;
+};
+
 export type VideoCreativePlan = {
   version: 1;
   brief: string;
   durationSeconds: number;
   productProfile: ProductProfile;
+  directorBeats: DirectorBeat[];
   scenes: VideoScene[];
   callToAction: string;
   audioMode: VideoAudioMode;
@@ -70,45 +83,9 @@ const identityRule = "严格保持商品外形、颜色、材质、包装、可�
 export function buildFallbackVideoCreativePlan(input: VideoPlanInput): VideoCreativePlan {
   const durationSeconds = normalizeDuration(input.durationSeconds);
   const imageCount = Math.max(1, Math.min(6, Math.trunc(input.imageCount) || 1));
-  const sceneCount = Math.ceil(durationSeconds / 5);
   const brief = input.brief?.trim() || "生成一条真实、清晰、适合电商投放的商品短视频。";
   const goal = input.videoGoal?.trim() || "商品亮相";
-  const platform = input.platform?.trim() || "电商通用";
-  const handPresentationRule = presentationRuleForGoal(goal);
-  const scenes = Array.from({ length: sceneCount }, (_, index) => {
-    const startSeconds = index * 5;
-    const endSeconds = Math.min(durationSeconds, startSeconds + 5);
-    const last = index === sceneCount - 1;
-    const purpose = index === 0 ? "首屏快速识别商品" : last ? "真实使用场景与行动召唤" : "展示一个可见细节或真实使用价值";
-    const narration = index === 0
-      ? "一眼看清，真实商品就是主角。"
-      : last
-        ? "看清细节，马上把它带回日常生活。"
-        : "把真实细节和使用感受，讲得清楚一点。";
-    const caption = index === 0 ? "真实商品，第一眼看清" : last ? "看清细节，立即了解" : "真实细节，自然呈现";
-    return {
-      id: `scene-${index + 1}`,
-      index,
-      startSeconds,
-      endSeconds,
-      purpose,
-      requiredProductFacts: index === 0
-        ? ["商品整体外观", "主色与可见结构"]
-        : last
-          ? ["真实使用场景", "商品整体外观"]
-          : ["可确认的材质、结构或包装细节"],
-      visualPrompt: [
-        `这是第 ${index + 1} 段（${startSeconds}-${endSeconds} 秒），目标：${purpose}。`,
-        "所有已上传图片共同定义同一个真实商品的外观、细节与包装；图片没有先后顺序。",
-        identityRule,
-        `围绕“${goal}”完成一个完整、单一的镜头动作，画面符合${platform}短视频观看习惯。`,
-        handPresentationRule,
-        index === 0 ? "开场即给商品清晰主视觉，镜头平稳推进，不快速切换多个场景。" : last ? "在真实、克制的生活场景中收束，商品清晰可见并保留干净结尾。" : "用一个稳定的细节扫拍展示可确认卖点；未确认商品适合操作前，不加入手部互动。"
-      ].join("\n"),
-      narration,
-      caption
-    };
-  });
+  const directorBeats = fallbackDirectorBeats({ ...input, durationSeconds, brief, videoGoal: goal });
   return {
     version: 1,
     brief,
@@ -122,8 +99,9 @@ export function buildFallbackVideoCreativePlan(input: VideoPlanInput): VideoCrea
       sourceImageCount: imageCount,
       verified: false
     },
-    scenes,
-    callToAction: "看清真实商品细节，立即了解。",
+    directorBeats,
+    scenes: compileRenderScenes(directorBeats, durationSeconds),
+    callToAction: "",
     audioMode: toAudioMode(input.voiceoverMode),
     musicMode: toMusicMode(input.musicMode),
     captionMode: toCaptionMode(input.subtitleMode)
@@ -134,14 +112,14 @@ export function normalizeVideoCreativePlan(candidate: unknown, input: VideoPlanI
   const fallback = buildFallbackVideoCreativePlan(input);
   if (!candidate || typeof candidate !== "object") return fallback;
   const raw = candidate as Partial<VideoCreativePlan>;
-  const scenes = Array.isArray(raw.scenes) ? raw.scenes : [];
-  if (scenes.length !== fallback.scenes.length) return fallback;
+  const directorBeats = normalizeDirectorBeats(raw.directorBeats, fallback.directorBeats, fallback.durationSeconds);
   return {
     ...fallback,
     brief: stringOr(raw.brief, fallback.brief, 2_000),
     callToAction: stringOr(raw.callToAction, fallback.callToAction, 160),
     productProfile: normalizeProfile(raw.productProfile, fallback.productProfile),
-    scenes: fallback.scenes.map((base, index) => normalizeScene(scenes[index], base, fallback.productProfile.sourceImageCount)),
+    directorBeats,
+    scenes: compileRenderScenes(directorBeats, fallback.durationSeconds),
     audioMode: raw.audioMode === "tts" || raw.audioMode === "none" ? raw.audioMode : fallback.audioMode,
     musicMode: raw.musicMode === "library" || raw.musicMode === "native" || raw.musicMode === "none" ? raw.musicMode : fallback.musicMode,
     captionMode: raw.captionMode === "burned" || raw.captionMode === "none" ? raw.captionMode : fallback.captionMode
@@ -153,15 +131,17 @@ export function scriptFromVideoCreativePlan(plan: VideoCreativePlan): string {
     `视频目标：${plan.brief}`,
     `产品事实：${plan.productProfile.identityFacts.join("；")}`,
     `真实性限制：${plan.productProfile.forbiddenChanges.join("；")}`,
-    ...plan.scenes.map((scene) => [
-      `${scene.index + 1}. [${scene.startSeconds}s-${scene.endSeconds}s] ${scene.purpose}`,
-      `本段商品重点：${scene.requiredProductFacts.join("；")}`,
-      `画面：${scene.visualPrompt}`,
-      `配音：${scene.narration || "无"}`,
-      `字幕：${scene.caption || "无"}`
+    `声音与字幕：背景音乐${plan.musicMode === "none" ? "无" : plan.musicMode === "native" ? "AI自动配乐" : "音乐库配乐"}；配音${plan.audioMode === "tts" ? "按导演文案配音" : "无"}；字幕${plan.captionMode === "burned" ? "按导演节拍生成" : "无"}`,
+    ...plan.directorBeats.map((beat) => [
+      `${beat.index + 1}. [${formatSeconds(beat.startSeconds)}-${formatSeconds(beat.endSeconds)}]`,
+      `主体：${beat.visualSubject}`,
+      `运镜：${beat.cameraMovement}`,
+      `动作：${beat.action}`,
+      `配音：${beat.narration || "无"}`,
+      `字幕：${beat.caption || "无"}`
     ].join("\n")),
-    `行动召唤：${plan.callToAction}`
-  ].join("\n\n");
+    plan.callToAction ? `行动召唤：${plan.callToAction}` : undefined
+  ].filter(Boolean).join("\n\n");
 }
 
 export function videoScenePrompt(scene: VideoScene, profile: ProductProfile): string {
@@ -191,19 +171,92 @@ function normalizeProfile(raw: unknown, fallback: ProductProfile): ProductProfil
   };
 }
 
-function normalizeScene(raw: unknown, fallback: VideoScene, imageCount: number): VideoScene {
-  if (!raw || typeof raw !== "object") return fallback;
-  const candidate = raw as Partial<VideoScene>;
-  return {
-    ...fallback,
-    purpose: stringOr(candidate.purpose, fallback.purpose, 200),
-    requiredProductFacts: stringArray(candidate.requiredProductFacts, fallback.requiredProductFacts),
-    fallbackReferenceIndex: Number.isInteger(candidate.fallbackReferenceIndex) ? Math.max(0, Math.min(imageCount - 1, Number(candidate.fallbackReferenceIndex))) : undefined,
-    visualPrompt: stringOr(candidate.visualPrompt, fallback.visualPrompt, 2_500),
-    narration: stringOr(candidate.narration, fallback.narration, 160),
-    caption: stringOr(candidate.caption, fallback.caption, 100)
-  };
+function normalizeDirectorBeats(raw: unknown, fallback: DirectorBeat[], durationSeconds: number): DirectorBeat[] {
+  if (!Array.isArray(raw) || !raw.length || raw.length > 8) return fallback;
+  const parsed = raw.map((value, index) => normalizeDirectorBeat(value, index)).filter((value): value is DirectorBeat => Boolean(value)).sort((a, b) => a.startSeconds - b.startSeconds);
+  if (!parsed.length || parsed[0]!.startSeconds > 0.15 || Math.abs(parsed.at(-1)!.endSeconds - durationSeconds) > 0.15) return fallback;
+  for (let index = 0; index < parsed.length; index += 1) {
+    const beat = parsed[index]!;
+    const previous = parsed[index - 1];
+    if (beat.endSeconds <= beat.startSeconds || beat.endSeconds - beat.startSeconds < 0.4 || beat.endSeconds > durationSeconds + 0.15 || (previous && Math.abs(previous.endSeconds - beat.startSeconds) > 0.2)) return fallback;
+  }
+  return parsed.map((beat, index) => ({ ...beat, id: `beat-${index + 1}`, index, startSeconds: roundTime(index === 0 ? 0 : beat.startSeconds), endSeconds: roundTime(index === parsed.length - 1 ? durationSeconds : beat.endSeconds) }));
 }
+
+function normalizeDirectorBeat(raw: unknown, index: number): DirectorBeat | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Partial<DirectorBeat>;
+  const startSeconds = finiteNumber(candidate.startSeconds);
+  const endSeconds = finiteNumber(candidate.endSeconds);
+  if (startSeconds === undefined || endSeconds === undefined) return undefined;
+  const visualSubject = nonEmptyText(candidate.visualSubject, 240);
+  const cameraMovement = nonEmptyText(candidate.cameraMovement, 240);
+  const action = nonEmptyText(candidate.action, 400);
+  if (!visualSubject || !cameraMovement || !action) return undefined;
+  return { id: `beat-${index + 1}`, index, startSeconds, endSeconds, visualSubject, cameraMovement, action, narration: textOrEmpty(candidate.narration, 160), caption: textOrEmpty(candidate.caption, 100) };
+}
+
+function compileRenderScenes(beats: DirectorBeat[], durationSeconds: number): VideoScene[] {
+  const sceneCount = Math.ceil(durationSeconds / 5);
+  return Array.from({ length: sceneCount }, (_, index) => {
+    const startSeconds = index * 5;
+    const endSeconds = Math.min(durationSeconds, startSeconds + 5);
+    const relevantBeats = beats.filter((beat) => beat.endSeconds > startSeconds && beat.startSeconds < endSeconds);
+    const timeline = relevantBeats.map((beat) => {
+      const visibleStart = Math.max(beat.startSeconds, startSeconds);
+      const visibleEnd = Math.min(beat.endSeconds, endSeconds);
+      return `[全片 ${formatSeconds(visibleStart)}-${formatSeconds(visibleEnd)}] 主体：${beat.visualSubject}；运镜：${beat.cameraMovement}；动作：${beat.action}`;
+    });
+    return {
+      id: `render-segment-${index + 1}`,
+      index,
+      startSeconds,
+      endSeconds,
+      purpose: relevantBeats.map((beat) => beat.visualSubject).join("；") || "按导演时间线生成",
+      requiredProductFacts: ["商品身份、外形、颜色、材质与可确认细节"],
+      visualPrompt: [
+        `这是后台渲染片段（全片 ${formatSeconds(startSeconds)}-${formatSeconds(endSeconds)}），必须连续衔接导演时间线。`,
+        "所有已上传图片共同定义同一个真实商品的外观、细节与包装；图片没有先后顺序。",
+        identityRule,
+        ...timeline,
+        "仅呈现本时间范围内的导演节拍；不擅自补充固定的商品亮相、细节、场景或行动召唤结构。"
+      ].join("\n"),
+      narration: relevantBeats.map((beat) => beat.narration).filter(Boolean).join("。"),
+      caption: relevantBeats.map((beat) => beat.caption).filter(Boolean).join(" / ")
+    };
+  });
+}
+
+function fallbackDirectorBeats(input: VideoPlanInput & { brief: string; videoGoal: string }): DirectorBeat[] {
+  const choices = [
+    ["商品轮廓与环境关系", "平稳推近", "从干净构图自然推进，保留商品真实比例", "真实商品，自然呈现"],
+    ["可确认的结构与材质", "微距横移", "沿可见结构缓慢扫过，不补充图片中不存在的功能", "细节经得起看"],
+    ["商品在可信场景中的状态", "低速侧移", "让商品与真实环境产生自然关系，不强行加入人物或操作", "真实场景，更有代入感"],
+    ["商品整体与局部呼应", "由近及远", "从局部回到整体，保持干净、克制的收束", "看见完整细节"],
+    ["产品表面与空间层次", "稳定环绕", "以稳定镜头表现轮廓、材质和可见空间层次", "清晰呈现每一处"],
+    ["商品的静态美感", "缓慢俯仰", "以单一连续动作建立画面节奏，不编造使用动作", "让商品自己说话"]
+  ];
+  const seed = stableHash(`${input.brief}|${input.category ?? ""}|${input.videoGoal}|${input.platform ?? ""}`);
+  const count = input.durationSeconds <= 5 ? 2 : input.durationSeconds <= 10 ? 3 : 4 + seed % 2;
+  const weights = [0.22, 0.18, 0.26, 0.16, 0.18, 0.2];
+  const selected = Array.from({ length: count }, (_, index) => choices[(seed + index * 3) % choices.length]!);
+  const selectedWeights = selected.map((_, index) => weights[(seed + index) % weights.length]!);
+  const total = selectedWeights.reduce((sum, value) => sum + value, 0);
+  let cursor = 0;
+  return selected.map((choice, index) => {
+    const startSeconds = roundTime(cursor);
+    const endSeconds = index === selected.length - 1 ? input.durationSeconds : roundTime(cursor + input.durationSeconds * (selectedWeights[index]! / total));
+    cursor = endSeconds;
+    return { id: `beat-${index + 1}`, index, startSeconds, endSeconds, visualSubject: `${input.category?.trim() || "商品"}的${choice[0]}`, cameraMovement: choice[1], action: `围绕用户需求“${input.brief.slice(0, 120)}”执行：${choice[2]}。${presentationRuleForGoal(input.videoGoal)}`, narration: "", caption: choice[3] };
+  });
+}
+
+function stableHash(value: string) { return [...value].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) >>> 0, 7); }
+function finiteNumber(value: unknown) { return typeof value === "number" && Number.isFinite(value) ? value : typeof value === "string" && Number.isFinite(Number(value)) ? Number(value) : undefined; }
+function nonEmptyText(value: unknown, max: number) { return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined; }
+function textOrEmpty(value: unknown, max: number) { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
+function roundTime(value: number) { return Math.round(value * 10) / 10; }
+function formatSeconds(value: number) { return `${Number.isInteger(value) ? value : value.toFixed(1)}秒`; }
 
 function stringArray(value: unknown, fallback: string[]): string[] {
   if (!Array.isArray(value)) return fallback;

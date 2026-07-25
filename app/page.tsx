@@ -2223,7 +2223,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
                 <input inputMode="numeric" max={15} min={1} type="number" value={customDuration} onChange={(event) => setCustomDuration(event.target.value)} />
               </label>
             ) : null}
-            <em>5 秒用于试片；10 秒按 2 段、15 秒按 3 段依次生成并合成为完整成片。</em>
+            <em>AI会按全片时长自由规划导演脚本；后台仅为模型生成和合成自动切片。</em>
           </div>
         </section>
       </aside>
@@ -2267,37 +2267,6 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
           <span className="videoPromptBoxTitleCentered">AI生成的执行脚本</span>
           <textarea readOnly value={script} placeholder="AI代写后会在这里显示完整的视频执行脚本。" rows={10} />
         </label>
-
-        {creativePlan ? (
-          <section className="videoCreativePlan">
-            <div><strong>产品事实卡</strong><span>已融合 {creativePlan.productProfile.sourceImageCount} 张商品图为同一商品的多视角事实包，所有素材共同约束外观、细节与包装。</span></div>
-            <p>{creativePlan.productProfile.identityFacts.join("；")}</p>
-            <div className="videoScenePlanList">
-              {creativePlan.scenes.map((scene) => <article key={scene.id}>
-                <strong>{scene.startSeconds}-{scene.endSeconds} 秒</strong><span>{scene.purpose}</span>
-                <small>本段重点：{scene.requiredProductFacts?.join("、") || "商品整体外观与可确认细节"}</small>
-                <textarea aria-label={`${scene.index + 1} 分镜画面`} value={scene.visualPrompt} onChange={(event) => setCreativePlan((current) => {
-                  if (!current) return current;
-                  const next = { ...current, scenes: current.scenes.map((item) => item.id === scene.id ? { ...item, visualPrompt: event.target.value } : item) };
-                  setScript(scriptFromVideoCreativePlan(next));
-                  return next;
-                })} />
-                <label>配音<input value={scene.narration} onChange={(event) => setCreativePlan((current) => {
-                  if (!current) return current;
-                  const next = { ...current, scenes: current.scenes.map((item) => item.id === scene.id ? { ...item, narration: event.target.value } : item) };
-                  setScript(scriptFromVideoCreativePlan(next));
-                  return next;
-                })} /></label>
-                <label>字幕<input value={scene.caption} onChange={(event) => setCreativePlan((current) => {
-                  if (!current) return current;
-                  const next = { ...current, scenes: current.scenes.map((item) => item.id === scene.id ? { ...item, caption: event.target.value } : item) };
-                  setScript(scriptFromVideoCreativePlan(next));
-                  return next;
-                })} /></label>
-              </article>)}
-            </div>
-          </section>
-        ) : null}
 
         <div className="videoRevisionRow">
           <label className="videoPromptBox videoScriptBox">

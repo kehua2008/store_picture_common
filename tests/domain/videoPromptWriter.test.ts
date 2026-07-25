@@ -25,7 +25,7 @@ describe("OpenAICompatibleVideoPromptWriter", () => {
       }), { status: 200 })
     });
 
-    await expect(writer.write(request)).resolves.toMatchObject({ script: "1. 商品近景\n2. 使用展示", summary: "已完成", model: "test-model" });
+    await expect(writer.write(request)).resolves.toMatchObject({ summary: "已完成", model: "test-model" });
   });
 
   it("instructs the model to choose hands from product evidence instead of making them the default", async () => {
@@ -45,6 +45,9 @@ describe("OpenAICompatibleVideoPromptWriter", () => {
     expect(sent).toContain("never default to hands");
     expect(sent).toContain("Cars, large appliances, furniture and large equipment");
     expect(sent).toContain("AI智能判断");
+    expect(sent).toContain("directorBeats");
+    expect(sent).toContain("fully director-led");
+    expect(sent).toContain("scenes is server-internal");
   });
 
   it("does not call a provider without an API key", async () => {

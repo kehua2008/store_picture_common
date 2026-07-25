@@ -80,8 +80,7 @@ async function chooseMusic(): Promise<string> {
 }
 
 async function writeCaptions(job: VideoJob, destination: string): Promise<string> {
-  const scenes = job.creativePlan?.scenes ?? [];
-  const events = scenes.filter((scene) => scene.caption.trim()).map((scene) => `Dialogue: 0,${assTime(scene.startSeconds)},${assTime(scene.endSeconds)},Default,,0,0,0,,${escapeAss(scene.caption)}`);
+  const events = captionEventsFor(job);
   const content = [
     "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "",
     "[V4+ Styles]", "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding", "Style: Default,Noto Sans CJK SC,52,&H00FFFFFF,&H000000FF,&H90000000,&H50000000,1,0,0,0,100,100,0,0,1,2,0,2,80,80,130,1", "",
@@ -117,7 +116,9 @@ function runFfmpeg(args: string[]): Promise<void> {
   });
 }
 
-function narrationFor(job: VideoJob) { return job.creativePlan?.scenes.map((scene) => scene.narration).filter(Boolean).join("。") || "商品真实呈现，欢迎了解。"; }
+function timedNarrativeItems(job: VideoJob) { return job.creativePlan?.directorBeats ?? job.creativePlan?.scenes ?? []; }
+export function narrationFor(job: VideoJob) { return timedNarrativeItems(job).map((item) => item.narration).filter(Boolean).join("。") || "商品真实呈现，欢迎了解。"; }
+export function captionEventsFor(job: VideoJob) { return timedNarrativeItems(job).filter((item) => item.caption.trim()).map((item) => `Dialogue: 0,${assTime(item.startSeconds)},${assTime(item.endSeconds)},Default,,0,0,0,,${escapeAss(item.caption)}`); }
 function assTime(seconds: number) { const safe = Math.max(0, seconds); return `0:${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(Math.floor(safe % 60)).padStart(2, "0")}.${Math.round((safe % 1) * 100).toString().padStart(2, "0")}`; }
 function escapeAss(value: string) { return value.replace(/[\\{}]/g, "").replace(/\n/g, "\\N"); }
 function ffmpegPath() { const candidate = process.env.FFMPEG_PATH?.trim() || "/usr/bin/ffmpeg"; return existsSync(candidate) ? candidate : undefined; }
