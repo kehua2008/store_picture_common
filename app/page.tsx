@@ -53,6 +53,8 @@ type UserJobView = {
   id: string;
   status?: string;
   createdAt?: string;
+  renderMode?: "native_full" | "segmented_fallback";
+  pipelineStage?: "visual" | "audio" | "captions" | "compose";
   progress?: { completed?: number; total?: number };
   error?: { message?: string };
   results?: Array<{ id?: string; url?: string; mimeType?: string }>;
@@ -753,6 +755,20 @@ export default function Home() {
     void refreshUserJobs();
   }
 
+  async function recreateVideoJob() {
+    if (!latestVideoJob?.id) return;
+    setVideoCopyStatus("正在按新版整片模式重做视频...");
+    const response = await fetch(`/api/video-jobs/${latestVideoJob.id}/recreate`, { method: "POST" }).catch(() => undefined);
+    const body = await response?.json().catch(() => ({}));
+    if (!response?.ok) {
+      setVideoCopyStatus(`重做失败：${body?.message ?? authErrorMessage(body?.error)}`);
+      return;
+    }
+    setLatestVideoJob(body.job);
+    setVideoCopyStatus("已保留原素材和导演脚本，正在以新版整片模式生成视频。");
+    void refreshUserJobs();
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     setIsLoggedIn(false);
@@ -1021,6 +1037,7 @@ export default function Home() {
           copyPrompt={() => copyText(videoPrompt.body, setVideoCopyStatus)}
           createVideoJob={createVideoJob}
           cancelVideoJob={cancelVideoJob}
+          recreateVideoJob={recreateVideoJob}
           latestJob={latestVideoJob}
         />
       )}
@@ -1640,6 +1657,7 @@ type VideoWorkbenchInput = {
   copyPrompt: () => void;
   createVideoJob: (settings: VideoGenerationSettings) => Promise<void>;
   cancelVideoJob: () => Promise<void>;
+  recreateVideoJob: () => Promise<void>;
   latestJob?: UserJobView;
 };
 
@@ -2041,6 +2059,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
   const taskIsRunning = input.latestJob?.status === "submitted" || input.latestJob?.status === "composing";
   const taskIsActive = taskIsWaiting || taskIsRunning;
   const taskCanCancel = taskIsActive;
+  const taskCanRecreate = taskIsActive && (input.latestJob?.renderMode === "segmented_fallback" || (input.latestJob?.progress?.total ?? 1) > 1);
 
   useEffect(() => {
     const saved = loadLocalDraft<CustomVideoDraft>(videoDraftKey);
@@ -2223,7 +2242,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
                 <input inputMode="numeric" max={15} min={1} type="number" value={customDuration} onChange={(event) => setCustomDuration(event.target.value)} />
               </label>
             ) : null}
-            <em>AI会按全片时长自由规划导演脚本；后台仅为模型生成和合成自动切片。</em>
+            <em>AI会按全片时长自由规划导演脚本；Ark 会一次生成完整视频，再进行必要的字幕与音频合成。</em>
           </div>
         </section>
       </aside>
@@ -2281,8 +2300,9 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
         <div className="actionRow customVideoSubmitRow">
           <div className="actionButtons">
             <button className="generateButton" disabled={!script.trim() || submitting || taskIsActive} type="button" onClick={() => void submitVideo()}>
-              {submitting ? "正在提交视频任务..." : taskIsActive ? taskIsWaiting ? "视频任务等待中..." : "分镜或合成进行中..." : "按脚本生成视频"}
+              {submitting ? "正在提交视频任务..." : taskIsActive ? taskIsWaiting ? "视频任务等待中..." : "视频生成或合成进行中..." : "按脚本生成视频"}
             </button>
+            {taskCanRecreate ? <button className="cancelVideoButton" disabled={canceling} type="button" onClick={() => void input.recreateVideoJob()}>按新版整片重做</button> : null}
             {taskCanCancel ? (
               <button className="cancelVideoButton" disabled={canceling} type="button" onClick={() => void cancelVideo()}>{canceling ? "正在取消..." : "取消生成"}</button>
             ) : null}
@@ -2335,11 +2355,11 @@ function ResultRail(input: {
 }) {
   const isVideo = input.title.includes("视频");
   const progress = input.job?.progress;
-  const resultCount = input.job?.results?.length ?? 0;
-  const progressText = progress ? `${progress.completed ?? 0}/${progress.total ?? 0}` : "0/0";
-  const stateText = input.job?.status === "succeeded" ? "已完成" : input.job?.status === "partial_failed" ? "部分完成" : input.job?.status === "failed" ? "生成失败" : input.job?.status === "canceled" ? "已取消" : input.job?.status === "queued" ? "等待队列" : input.job?.status === "composing" ? "正在合成" : input.job?.status === "running" || input.job?.status === "submitted" ? "正在生成" : input.modeLabel;
   const firstResult = input.job?.results?.[0];
   const videoUrl = input.job?.result?.url;
+  const resultCount = isVideo ? (videoUrl ? 1 : 0) : input.job?.results?.length ?? 0;
+  const progressText = isVideo ? input.job?.status === "composing" ? "合成中" : input.job ? "1/1" : "0/0" : progress ? `${progress.completed ?? 0}/${progress.total ?? 0}` : "0/0";
+  const stateText = input.job?.status === "succeeded" ? "已完成" : input.job?.status === "partial_failed" ? "部分完成" : input.job?.status === "failed" ? "生成失败" : input.job?.status === "canceled" ? "已取消" : input.job?.status === "queued" ? "等待队列" : input.job?.status === "composing" ? "正在处理字幕与音频" : input.job?.status === "running" || input.job?.status === "submitted" ? "视觉生成中" : input.modeLabel;
   return (
     <aside className={isVideo ? "resultRail videoResultRail" : "resultRail"}>
       <div className="queueCard">

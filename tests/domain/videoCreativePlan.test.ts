@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFallbackVideoCreativePlan, migrateStoredVideoGoal, normalizeVideoCreativePlan, scriptFromVideoCreativePlan, videoScenePrompt } from "../../src/domain/video/videoCreativePlan";
+import { buildFallbackVideoCreativePlan, migrateStoredVideoGoal, normalizeVideoCreativePlan, scriptFromVideoCreativePlan, videoFullPrompt, videoScenePrompt } from "../../src/domain/video/videoCreativePlan";
 
 describe("video creative plan", () => {
   it("keeps five-second rendering slices behind a director-controlled full-video timeline", () => {
@@ -22,6 +22,15 @@ describe("video creative plan", () => {
     expect(script).toContain("白色保温杯");
     expect(script).not.toMatch(/素材\s*\d|第\s*\d\s*张/);
     expect(plan.scenes.every((scene) => scene.visualPrompt.includes("图片没有先后顺序"))).toBe(true);
+  });
+
+  it("compiles the full director timeline into one Ark-ready prompt", () => {
+    const plan = buildFallbackVideoCreativePlan({ durationSeconds: 15, imageCount: 3, brief: "出租车接送服务", category: "汽车服务" });
+    const prompt = videoFullPrompt(plan);
+    expect(prompt).toContain("完整 15秒 商品短视频");
+    expect(prompt).toContain("一次完成整条导演时间线");
+    expect(prompt).toContain("图片没有先后顺序");
+    expect(prompt).not.toMatch(/素材\s*\d|第\s*\d\s*张/);
   });
 
   it("preserves the native music mode selected by an audio-capable provider", () => {

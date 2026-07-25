@@ -36,13 +36,13 @@ export class FfmpegVideoComposer implements VideoComposer {
       await mkdir(workDir, { recursive: true });
       await mkdir(outputDir, { recursive: true });
       const videoFiles = await Promise.all(sourceUrls.map((url, index) => download(url, path.join(workDir, `scene-${index + 1}.mp4`))));
-      const listFile = path.join(workDir, "concat.txt");
-      await writeFile(listFile, videoFiles.map((file) => `file '${file.replace(/'/g, "'\\''")}'`).join("\n"));
+      const listFile = videoFiles.length > 1 ? path.join(workDir, "concat.txt") : undefined;
+      if (listFile) await writeFile(listFile, videoFiles.map((file) => `file '${file.replace(/'/g, "'\\''")}'`).join("\n"));
       const audioFile = job.creativePlan?.audioMode === "tts" ? await synthesizeAliyunTts(narrationFor(job), path.join(workDir, "narration.mp3")) : undefined;
       const musicFile = job.creativePlan?.musicMode === "library" ? await chooseMusic() : undefined;
       const captionsFile = job.creativePlan?.captionMode === "burned" ? await writeCaptions(job, path.join(workDir, "captions.ass")) : undefined;
       const output = path.join(outputDir, `${job.id}-final.mp4`);
-      await runFfmpeg(buildArgs({ listFile, audioFile, musicFile, nativeAudio: job.creativePlan?.musicMode === "native", captionsFile, output, duration: job.durationSeconds }));
+      await runFfmpeg(buildArgs({ sourceFile: videoFiles.length === 1 ? videoFiles[0] : undefined, listFile, audioFile, musicFile, nativeAudio: job.creativePlan?.musicMode === "native", captionsFile, output, duration: job.durationSeconds }));
       const baseUrl = process.env.APP_PUBLIC_BASE_URL?.replace(/\/$/, "");
       if (!baseUrl) return failure("public_base_url_required", "视频合成完成，但未配置公网结果地址。", false);
       return { ok: true, url: `${baseUrl}/video-sources/results/${encodeURIComponent(path.basename(output))}` };
@@ -90,8 +90,8 @@ async function writeCaptions(job: VideoJob, destination: string): Promise<string
   return destination;
 }
 
-function buildArgs(input: { listFile: string; audioFile?: string; musicFile?: string; nativeAudio?: boolean; captionsFile?: string; output: string; duration: number }): string[] {
-  const args = ["-y", "-f", "concat", "-safe", "0", "-i", input.listFile];
+function buildArgs(input: { sourceFile?: string; listFile?: string; audioFile?: string; musicFile?: string; nativeAudio?: boolean; captionsFile?: string; output: string; duration: number }): string[] {
+  const args = input.sourceFile ? ["-y", "-i", input.sourceFile] : ["-y", "-f", "concat", "-safe", "0", "-i", input.listFile!];
   if (input.audioFile) args.push("-i", input.audioFile);
   if (input.musicFile) args.push("-stream_loop", "-1", "-i", input.musicFile);
   if (!input.audioFile && !input.musicFile && !input.nativeAudio) args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100");

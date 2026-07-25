@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { persistentDataDir } from "../../server/storagePaths";
-import { type VideoCreativePlan, type VideoScene, videoScenePrompt } from "../video/videoCreativePlan";
+import { type VideoCreativePlan, type VideoScene, videoFullPrompt, videoScenePrompt } from "../video/videoCreativePlan";
 
 export type VideoJobStatus = "queued" | "submitted" | "composing" | "succeeded" | "failed" | "canceled";
 export type VideoError = { code: string; message: string; retryable: boolean };
@@ -20,6 +20,8 @@ export type VideoSceneJob = {
   resultUrl?: string;
   error?: VideoError;
 };
+
+export type VideoRenderMode = "native_full" | "segmented_fallback";
 
 export interface VideoJob {
   id: string;
@@ -46,7 +48,17 @@ export interface VideoJob {
   error?: VideoError;
   creativePlan?: VideoCreativePlan;
   scenes?: VideoSceneJob[];
+  renderMode?: VideoRenderMode;
+  replacedJobId?: string;
+  replacedByJobId?: string;
   pipelineStage?: "visual" | "audio" | "captions" | "compose";
+}
+
+export function buildVideoRenderScenes(creativePlan: VideoCreativePlan, renderMode: VideoRenderMode): VideoSceneJob[] {
+  if (renderMode === "native_full") {
+    return [{ sceneId: "full-video", index: 0, prompt: videoFullPrompt(creativePlan), status: "queued" }];
+  }
+  return creativePlan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, creativePlan.productProfile), fallbackReferenceIndex: scene.fallbackReferenceIndex, status: "queued" }));
 }
 
 type VideoProvider = {
@@ -88,6 +100,9 @@ export class VideoJobService {
   createJob(input: Omit<VideoJob, "id" | "createdAt" | "updatedAt" | "status" | "progress" | "chargedCredits">) { return this.repository.create(input); }
   list(customerId: string) { return this.repository.allForCustomer(customerId); }
   get(id: string) { return this.repository.find(id); }
+  async linkReplacement(id: string, replacementId: string) {
+    return this.repository.update(id, (job) => ({ ...job, replacedByJobId: replacementId }));
+  }
   async cancel(id: string) {
     let canceled = false;
     const job = await this.repository.update(id, (current) => {
@@ -98,7 +113,13 @@ export class VideoJobService {
     if (canceled && job) await this.settlement.onCanceled?.(job);
     return job;
   }
-  async runDueJobs(): Promise<void> { for (const job of await this.repository.all()) { const nextAttempt = job.nextAttemptAt ? new Date(job.nextAttemptAt).getTime() : 0; if (["queued", "submitted", "composing"].includes(job.status) && !this.active.has(job.id) && (!nextAttempt || nextAttempt <= Date.now())) { await this.run(job.id); return; } } }
+  async runDueJobs(): Promise<void> {
+    const due = (await this.repository.all()).filter((job) => {
+      const nextAttempt = job.nextAttemptAt ? new Date(job.nextAttemptAt).getTime() : 0;
+      return ["queued", "submitted", "composing"].includes(job.status) && !this.active.has(job.id) && (!nextAttempt || nextAttempt <= Date.now());
+    });
+    for (const job of due) await this.run(job.id);
+  }
   async run(id: string): Promise<VideoJob | undefined> {
     if (this.active.has(id)) return this.get(id); this.active.add(id);
     try {
@@ -108,10 +129,11 @@ export class VideoJobService {
       const activeScene = scenes.find((scene) => scene.status === "queued" || scene.status === "submitted");
       if (!activeScene) return this.beginComposition(job, scenes);
       if (activeScene.status === "queued") {
-        const images = this.provider.supportsMultiImage?.()
+        const nativeFull = isNativeFullRender(job);
+        const images = nativeFull || this.provider.supportsMultiImage?.()
           ? job.images
           : [job.images[activeScene.fallbackReferenceIndex ?? 0] ?? job.images[0]].filter(Boolean);
-        const created = await this.provider.create({ ...job, prompt: activeScene.prompt, images, durationSeconds: 5 });
+        const created = await this.provider.create({ ...job, prompt: activeScene.prompt, images, durationSeconds: nativeFull ? job.durationSeconds : 5 });
         const current = await this.repository.find(id); if (!current || current.status === "canceled") return current;
         if (!created.ok) return this.failOrRetry(current, created.error);
         return this.repository.update(id, (item) => ({ ...item, status: "submitted", pipelineStage: "visual", scenes: markScene(item, activeScene.index, (scene) => ({ ...scene, status: "submitted", providerTaskId: created.task.id, providerModel: created.task.model, submittedAt: new Date().toISOString(), error: undefined })), providerTaskId: created.task.id, providerModel: created.task.model, submittedAt: new Date().toISOString() }));
@@ -174,9 +196,14 @@ export class VideoJobService {
 
 function ensureScenes(job: VideoJob): VideoSceneJob[] {
   if (job.scenes?.length) return job.scenes;
+  if (isNativeFullRender(job) && job.creativePlan) {
+    return [{ sceneId: "full-video", index: 0, prompt: videoFullPrompt(job.creativePlan), status: job.status === "submitted" ? "submitted" : "queued", providerTaskId: job.providerTaskId, providerModel: job.providerModel, submittedAt: job.submittedAt }];
+  }
   const scene: VideoScene = { id: "scene-1", index: 0, startSeconds: 0, endSeconds: job.durationSeconds, purpose: "完成视频生成", requiredProductFacts: ["商品整体外观与可确认细节"], visualPrompt: job.prompt, narration: "", caption: "" };
   return [{ sceneId: scene.id, index: 0, prompt: job.creativePlan ? videoScenePrompt(scene, job.creativePlan.productProfile) : job.prompt, status: job.status === "submitted" ? "submitted" : "queued", providerTaskId: job.providerTaskId, providerModel: job.providerModel, submittedAt: job.submittedAt }];
 }
+
+function isNativeFullRender(job: VideoJob) { return job.renderMode === "native_full"; }
 function markScene(job: VideoJob, index: number, callback: (scene: VideoSceneJob) => VideoSceneJob): VideoSceneJob[] {
   const scenes = ensureScenes(job);
   return scenes.map((scene) => scene.index === index ? callback(scene) : scene);

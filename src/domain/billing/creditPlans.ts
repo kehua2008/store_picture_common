@@ -233,6 +233,12 @@ export function estimatePlanVideoCount(plan: CreditRechargePlan): number {
   return Math.floor(plan.credits / plan.videoCreditsPerUnit);
 }
 
+/** Matches the established clothing-station video rule: one video task plus
+ * a small charge for each additional source image retained as a reference. */
+export function estimateVideoTaskCredits(plan: CreditRechargePlan, imageCount: number): number {
+  return plan.videoCreditsPerUnit + Math.max(0, Math.min(6, Math.trunc(imageCount)) - 1) * 30;
+}
+
 export function unitImagePriceCny(plan: CreditRechargePlan): number {
   const imageCount = estimatePlanBaseImageCount(plan);
   return imageCount > 0 ? plan.priceCny / imageCount : 0;

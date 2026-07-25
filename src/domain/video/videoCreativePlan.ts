@@ -157,6 +157,31 @@ export function videoScenePrompt(scene: VideoScene, profile: ProductProfile): st
   ].join("\n");
 }
 
+/**
+ * Ark can render the complete 1-15 second timeline in one request. The five
+ * second scenes remain an internal compatibility path for providers that do
+ * not have that capability.
+ */
+export function videoFullPrompt(plan: VideoCreativePlan): string {
+  const fullScene: VideoScene = {
+    id: "full-video",
+    index: 0,
+    startSeconds: 0,
+    endSeconds: plan.durationSeconds,
+    purpose: "按完整导演时间线生成整条视频",
+    requiredProductFacts: ["商品身份、外形、颜色、材质、包装与全部可确认细节"],
+    visualPrompt: [
+      `这是完整 ${formatSeconds(plan.durationSeconds)} 商品短视频，必须一次完成整条导演时间线，不要拆分成互不关联的片段。`,
+      "所有已上传图片共同定义同一个真实商品的多视角事实包；图片没有先后顺序，也不要求逐张出镜。",
+      ...plan.directorBeats.map((beat) => `[${formatSeconds(beat.startSeconds)}-${formatSeconds(beat.endSeconds)}] 主体：${beat.visualSubject}；运镜：${beat.cameraMovement}；动作：${beat.action}`),
+      "镜头之间自然连续衔接，严格遵守上述时间线，不追加固定的商品亮相、细节或行动召唤模板。"
+    ].join("\n"),
+    narration: plan.directorBeats.map((beat) => beat.narration).filter(Boolean).join("。"),
+    caption: plan.directorBeats.map((beat) => beat.caption).filter(Boolean).join(" / ")
+  };
+  return videoScenePrompt(fullScene, plan.productProfile);
+}
+
 function normalizeProfile(raw: unknown, fallback: ProductProfile): ProductProfile {
   if (!raw || typeof raw !== "object") return fallback;
   const candidate = raw as Partial<ProductProfile>;

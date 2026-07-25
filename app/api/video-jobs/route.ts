@@ -4,7 +4,9 @@ import { NextResponse } from "next/server";
 import { getAuthContextFromRequest } from "../../../src/server/auth";
 import { rechargeOrderRepository, videoJobService } from "../../../src/server/services";
 import { persistentUploadSubdir } from "../../../src/server/storagePaths";
-import { normalizeVideoCreativePlan, videoScenePrompt } from "../../../src/domain/video/videoCreativePlan";
+import { normalizeVideoCreativePlan } from "../../../src/domain/video/videoCreativePlan";
+import { estimateVideoTaskCredits } from "../../../src/domain/billing/creditPlans";
+import { buildVideoRenderScenes, type VideoRenderMode } from "../../../src/domain/jobs/videoJobs";
 import { FfmpegVideoComposer, videoCompositionCapabilities } from "../../../src/server/videoComposer";
 import { nativeAudioVideoAvailable } from "../../../src/domain/provider/yunwuVideoProvider";
 
@@ -13,8 +15,9 @@ videoJobService.useComposer(new FfmpegVideoComposer());
 
 export async function GET(request: Request) {
   if (new URL(request.url).searchParams.get("capabilities") === "1") {
+    const nativeVideo = nativeAudioVideoAvailable();
     return NextResponse.json({
-      capabilities: { maxSegmentSeconds: 5, maxVisualReferencesPerSegment: nativeAudioVideoAvailable() ? 6 : 1, supportsNativeAudio: videoCompositionCapabilities().nativeMusicAvailable },
+      capabilities: { maxSegmentSeconds: nativeVideo ? 15 : 5, maxVisualReferencesPerSegment: nativeVideo ? 6 : 1, supportsNativeAudio: videoCompositionCapabilities().nativeMusicAvailable },
       composition: videoCompositionCapabilities()
     });
   }
@@ -55,7 +58,8 @@ export async function POST(request: Request) {
   if (creativePlan.audioMode === "tts" && !composition.ttsAvailable) return NextResponse.json({ error: "tts_not_configured", message: "AI 配音尚未配置，当前不能提交配音视频。请选择不需要配音，或联系管理员完成阿里云智能语音配置。" }, { status: 503 });
   if (creativePlan.musicMode === "library" && !composition.musicLibraryAvailable) return NextResponse.json({ error: "music_library_not_configured", message: "站内音乐库和原生自动配乐服务均未配置，当前不能提交自动配乐视频。请选择不需要背景音乐。" }, { status: 503 });
   if (!composition.composerAvailable) return NextResponse.json({ error: "composer_not_configured", message: "视频合成服务暂不可用，请稍后重试。" }, { status: 503 });
-  const reservedCredits = plan.videoCreditsPerUnit * creativePlan.scenes.length;
+  const renderMode: VideoRenderMode = nativeAudioVideoAvailable() ? "native_full" : "segmented_fallback";
+  const reservedCredits = estimateVideoTaskCredits(plan, images.length);
   const account = await rechargeOrderRepository.account(auth.user.id);
   if (account.balanceCredits < reservedCredits) return NextResponse.json({ error: "insufficient_credits", requiredCredits: reservedCredits, account }, { status: 402 });
   const batch = `video-${crypto.randomUUID()}`;
@@ -73,7 +77,8 @@ export async function POST(request: Request) {
     outputResolution: formText(form, "outputResolution") === "720p" ? "720p" : "480p",
     reservedCredits,
     creativePlan,
-    scenes: creativePlan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, creativePlan.productProfile), fallbackReferenceIndex: scene.fallbackReferenceIndex, status: "queued" }))
+    renderMode,
+    scenes: buildVideoRenderScenes(creativePlan, renderMode)
   });
   try {
     await rechargeOrderRepository.reserveGenerationCredits({ customerId: auth.user.id, generationJobId: job.id, credits: reservedCredits, actorId: auth.actor.actorId, actorName: auth.actor.actorName, reason: "创建视频任务冻结预计积分" });
