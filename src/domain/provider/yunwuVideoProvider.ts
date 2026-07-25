@@ -1,5 +1,11 @@
 import type { VideoError } from "../jobs/videoJobs";
 
+export const yunwuVideoCapabilities = {
+  maxSegmentSeconds: 5,
+  maxVisualReferencesPerSegment: 1,
+  supportsNativeAudio: false
+} as const;
+
 export class YunwuVideoProvider {
   async create(input: { prompt: string; images: string[]; aspectRatio: string; durationSeconds: number }): Promise<{ ok: true; task: { id: string; model: string } } | { ok: false; error: VideoError }> {
     const key = process.env.YUNWU_API_KEY?.trim();
@@ -33,6 +39,7 @@ async function buildCreateBody(input: { prompt: string; images: string[]; aspect
       model_name: input.model,
       prompt: input.prompt,
       negative_prompt: "",
+      // Kling v2.5 image-to-video accepts one visual anchor. The job planner chooses it per scene.
       image: await klingImagePayload(input.images[0]),
       image_tail: "",
       aspect_ratio: input.aspectRatio,

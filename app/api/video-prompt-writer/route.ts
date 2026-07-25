@@ -10,7 +10,7 @@ const requestSchema = z.object({
   brief: z.string().max(2_000).optional(),
   currentScript: z.string().max(8_000).optional(),
   revision: z.string().max(2_000).optional(),
-  productImages: z.array(z.string().startsWith("data:image/").max(12_000_000)).min(1).max(3),
+  productImages: z.array(z.string().startsWith("data:image/").max(12_000_000)).min(1).max(6),
   category: z.string().min(1).max(80),
   videoGoal: z.string().min(1).max(80),
   platform: z.string().min(1).max(80),

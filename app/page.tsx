@@ -15,6 +15,7 @@ import {
   type SuiteId,
   type TaskId
 } from "../src/domain/common/promptMatrix";
+import { buildFallbackVideoCreativePlan, scriptFromVideoCreativePlan, type VideoCreativePlan } from "../src/domain/video/videoCreativePlan";
 
 type PortalView = "home" | "choice" | "image" | "video";
 
@@ -70,6 +71,20 @@ type VideoGenerationSettings = {
   aspectRatio: string;
   durationSeconds: number;
   outputResolution: "480p" | "720p";
+  creativePlan?: VideoCreativePlan;
+  brief?: string;
+  category?: string;
+  videoGoal?: string;
+  platform?: string;
+  musicMode?: string;
+  voiceoverMode?: string;
+  subtitleMode?: string;
+};
+
+type VideoCompositionCapabilitiesView = {
+  composerAvailable: boolean;
+  ttsAvailable: boolean;
+  musicLibraryAvailable: boolean;
 };
 
 type OptimizedAsset = {
@@ -165,8 +180,8 @@ const referenceModeOptions = [
 ] as const;
 
 const commonVideoGoals = ["换成我的商品", "换背景但保留氛围", "保留节奏，重写文案", "生成投放感字幕"];
-const musicModeOptions = ["AI自动配乐", "上传本地音乐", "粘贴音乐链接", "不需要背景音乐"];
-const voiceoverModeOptions = ["不需要配音", "AI自主配音", "按文案配音", "上传配音音频"];
+const musicModeOptions = ["不需要背景音乐", "AI自动配乐"];
+const voiceoverModeOptions = ["不需要配音", "按文案配音"];
 const subtitleModeOptions = ["无字幕", "AI生成字幕", "按文案生成字幕"];
 const directVideoQualities = [
   { id: "480p", label: "480P", desc: "推荐先生成，试片成本更低" },
@@ -330,7 +345,7 @@ async function requestVideoPromptWriter(input: {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof body?.message === "string" ? body.message : "AI提示词代写失败，请稍后重试。");
   if (typeof body?.script !== "string" || !body.script.trim()) throw new Error("AI提示词代写返回内容为空，请稍后重试。");
-  return { script: body.script.trim(), summary: typeof body?.summary === "string" ? body.summary : "" };
+  return { script: body.script.trim(), summary: typeof body?.summary === "string" ? body.summary : "", plan: body?.plan as VideoCreativePlan | undefined };
 }
 
 function buildVideoPrompt(input: {
@@ -429,7 +444,7 @@ export default function Home() {
   }, [latestImageJob?.id, latestImageJob?.status]);
 
   useEffect(() => {
-    if (!latestVideoJob || !["queued", "submitted"].includes(latestVideoJob.status ?? "")) return;
+    if (!latestVideoJob || !["queued", "submitted", "composing"].includes(latestVideoJob.status ?? "")) return;
     const timer = window.setInterval(async () => {
       const response = await fetch("/api/video-jobs").catch(() => undefined);
       const body = await response?.json().catch(() => ({}));
@@ -474,7 +489,7 @@ export default function Home() {
     const response = await fetch("/api/video-jobs?scope=mine").catch(() => undefined);
     const body = await response?.json().catch(() => ({}));
     const jobs = Array.isArray(body?.jobs) ? body.jobs as UserJobView[] : [];
-    setLatestVideoJob(jobs.find((job) => job.status === "queued" || job.status === "submitted") ?? jobs[0]);
+    setLatestVideoJob(jobs.find((job) => job.status === "queued" || job.status === "submitted" || job.status === "composing") ?? jobs[0]);
   }
 
   async function refreshUserJobs() {
@@ -576,6 +591,14 @@ export default function Home() {
     form.set("aspectRatio", settings.aspectRatio);
     form.set("durationSeconds", String(settings.durationSeconds));
     form.set("outputResolution", settings.outputResolution);
+    if (settings.creativePlan) form.set("creativePlan", JSON.stringify(settings.creativePlan));
+    if (settings.brief) form.set("brief", settings.brief);
+    if (settings.category) form.set("category", settings.category);
+    if (settings.videoGoal) form.set("videoGoal", settings.videoGoal);
+    if (settings.platform) form.set("platform", settings.platform);
+    if (settings.musicMode) form.set("musicMode", settings.musicMode);
+    if (settings.voiceoverMode) form.set("voiceoverMode", settings.voiceoverMode);
+    if (settings.subtitleMode) form.set("subtitleMode", settings.subtitleMode);
     setVideoCopyStatus("正在提交生视频任务...");
     const response = await fetch("/api/video-jobs", { method: "POST", body: form }).catch(() => undefined);
     const body = await response?.json().catch(() => ({}));
@@ -1872,11 +1895,13 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
   const [customDuration, setCustomDuration] = useState("5");
   const [brief, setBrief] = useState("");
   const [script, setScript] = useState("");
+  const [creativePlan, setCreativePlan] = useState<VideoCreativePlan>();
   const [revision, setRevision] = useState("");
   const [status, setStatus] = useState("");
   const [writingMode, setWritingMode] = useState<"draft" | "revise" | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [compositionCapabilities, setCompositionCapabilities] = useState<VideoCompositionCapabilitiesView>();
   const category = categories.find((item) => item.id === input.category) ?? categories[0];
   const goal = videoGoals.find((item) => item.id === input.videoGoal) ?? videoGoals[0];
   const platform = videoPlatforms.find((item) => item.id === input.videoPlatform) ?? videoPlatforms[0];
@@ -1884,8 +1909,14 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
   const durationSeconds = Math.max(1, Math.min(15, Number(videoDuration === "custom" ? customDuration : videoDuration) || 5));
   const durationLabel = `${durationSeconds}秒`;
   const taskIsWaiting = input.latestJob?.status === "queued";
-  const taskIsRunning = input.latestJob?.status === "submitted";
+  const taskIsRunning = input.latestJob?.status === "submitted" || input.latestJob?.status === "composing";
   const taskIsActive = taskIsWaiting || taskIsRunning;
+
+  useEffect(() => {
+    void fetch("/api/video-jobs?capabilities=1").then((response) => response.ok ? response.json() : undefined).then((body) => {
+      if (body?.composition) setCompositionCapabilities(body.composition as VideoCompositionCapabilitiesView);
+    }).catch(() => undefined);
+  }, []);
 
   async function writeScript(mode: "draft" | "revise") {
     if (!input.files.some((file) => file.file.type.startsWith("image/"))) {
@@ -1897,7 +1928,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
     setStatus(mode === "draft" ? "AI正在读取商品图并代写提示词..." : "AI正在按补充意见重写提示词...");
     try {
       const productImages = await Promise.all(
-        input.files.filter((file) => file.file.type.startsWith("image/")).slice(0, 3).map((file) => fileToDataUrl(file.file))
+        input.files.filter((file) => file.file.type.startsWith("image/")).slice(0, 6).map((file) => fileToDataUrl(file.file))
       );
       const result = await requestVideoPromptWriter({
         mode,
@@ -1914,7 +1945,10 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
         voiceoverMode,
         subtitleMode
       });
-      setScript(result.script);
+      const fallbackPlan = buildFallbackVideoCreativePlan({ brief, durationSeconds, imageCount: productImages.length, category: category.label, videoGoal: goal.label, platform: platform.label, musicMode, voiceoverMode, subtitleMode });
+      const nextPlan = result.plan ?? fallbackPlan;
+      setCreativePlan(nextPlan);
+      setScript(result.script || scriptFromVideoCreativePlan(nextPlan));
       if (mode === "revise") setRevision("");
       setStatus(result.summary || (mode === "draft" ? "AI已生成视频提示词，可继续修改。" : "AI已按补充意见重写视频提示词。"));
     } catch (error) {
@@ -1931,11 +1965,21 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
     }
     setSubmitting(true);
     try {
+      const controlPlan = buildFallbackVideoCreativePlan({ brief, durationSeconds, imageCount: input.files.filter((file) => file.file.type.startsWith("image/")).length, category: category.label, videoGoal: goal.label, platform: platform.label, musicMode, voiceoverMode, subtitleMode });
+      const planForSubmit = creativePlan ? { ...creativePlan, audioMode: controlPlan.audioMode, musicMode: controlPlan.musicMode, captionMode: controlPlan.captionMode } : controlPlan;
       await input.createVideoJob({
         prompt: script.trim(),
         aspectRatio: aspectRatioForVideoSpec(videoSpec),
         durationSeconds,
-        outputResolution: videoQuality
+        outputResolution: videoQuality,
+        creativePlan: planForSubmit,
+        brief,
+        category: category.label,
+        videoGoal: goal.label,
+        platform: platform.label,
+        musicMode,
+        voiceoverMode,
+        subtitleMode
       });
     } finally {
       setSubmitting(false);
@@ -1971,13 +2015,13 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
             <span>背景音乐</span>
             <div className="videoOptionGrid">
               {musicModeOptions.map((item) => (
-                <button className={musicMode === item ? "active" : ""} key={item} type="button" onClick={() => setMusicMode(item)}>{item}</button>
+                <button className={musicMode === item ? "active" : ""} disabled={item === "AI自动配乐" && compositionCapabilities?.musicLibraryAvailable === false} key={item} type="button" onClick={() => setMusicMode(item)}>{item === "AI自动配乐" && compositionCapabilities?.musicLibraryAvailable === false ? "AI自动配乐（未配置）" : item}</button>
               ))}
             </div>
             <span>配音</span>
             <div className="videoOptionGrid">
               {voiceoverModeOptions.map((item) => (
-                <button className={voiceoverMode === item ? "active" : ""} key={item} type="button" onClick={() => setVoiceoverMode(item)}>{item}</button>
+                <button className={voiceoverMode === item ? "active" : ""} disabled={item === "按文案配音" && compositionCapabilities?.ttsAvailable === false} key={item} type="button" onClick={() => setVoiceoverMode(item)}>{item === "按文案配音" && compositionCapabilities?.ttsAvailable === false ? "按文案配音（未配置）" : item}</button>
               ))}
             </div>
           </div>
@@ -2016,7 +2060,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
                 <input inputMode="numeric" max={15} min={1} type="number" value={customDuration} onChange={(event) => setCustomDuration(event.target.value)} />
               </label>
             ) : null}
-            <em>草稿默认按 480P / 5 秒先生成，确认后再走高清输出。</em>
+            <em>5 秒用于试片；10 秒按 2 段、15 秒按 3 段依次生成并合成为完整成片。</em>
           </div>
         </section>
       </aside>
@@ -2057,9 +2101,39 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
         </section>
 
         <label className="videoPromptBox videoScriptBox customScriptEditor">
-          <span className="videoPromptBoxTitleCentered">AI生成的提示词</span>
-          <textarea value={script} onChange={(event) => setScript(event.target.value)} placeholder="AI代写后会在这里显示完整的视频提示词，你也可以直接编辑。" rows={10} />
+          <span className="videoPromptBoxTitleCentered">AI生成的执行脚本</span>
+          <textarea readOnly value={script} placeholder="AI代写后会在这里显示完整的视频执行脚本。" rows={10} />
         </label>
+
+        {creativePlan ? (
+          <section className="videoCreativePlan">
+            <div><strong>产品事实卡</strong><span>已读取 {creativePlan.productProfile.sourceImageCount} 张商品素材，分镜会按需选择一张视觉锚点，其余素材用于锁定商品真实性。</span></div>
+            <p>{creativePlan.productProfile.identityFacts.join("；")}</p>
+            <div className="videoScenePlanList">
+              {creativePlan.scenes.map((scene) => <article key={scene.id}>
+                <strong>{scene.startSeconds}-{scene.endSeconds} 秒 · 素材 {scene.anchorImageIndex + 1}</strong><span>{scene.purpose}</span>
+                <textarea aria-label={`${scene.index + 1} 分镜画面`} value={scene.visualPrompt} onChange={(event) => setCreativePlan((current) => {
+                  if (!current) return current;
+                  const next = { ...current, scenes: current.scenes.map((item) => item.id === scene.id ? { ...item, visualPrompt: event.target.value } : item) };
+                  setScript(scriptFromVideoCreativePlan(next));
+                  return next;
+                })} />
+                <label>配音<input value={scene.narration} onChange={(event) => setCreativePlan((current) => {
+                  if (!current) return current;
+                  const next = { ...current, scenes: current.scenes.map((item) => item.id === scene.id ? { ...item, narration: event.target.value } : item) };
+                  setScript(scriptFromVideoCreativePlan(next));
+                  return next;
+                })} /></label>
+                <label>字幕<input value={scene.caption} onChange={(event) => setCreativePlan((current) => {
+                  if (!current) return current;
+                  const next = { ...current, scenes: current.scenes.map((item) => item.id === scene.id ? { ...item, caption: event.target.value } : item) };
+                  setScript(scriptFromVideoCreativePlan(next));
+                  return next;
+                })} /></label>
+              </article>)}
+            </div>
+          </section>
+        ) : null}
 
         <div className="videoRevisionRow">
           <label className="videoPromptBox videoScriptBox">
@@ -2074,7 +2148,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
         <div className="actionRow customVideoSubmitRow">
           <div className="actionButtons">
             <button className="generateButton" disabled={!script.trim() || submitting || taskIsActive} type="button" onClick={() => void submitVideo()}>
-              {submitting ? "正在提交视频任务..." : taskIsActive ? taskIsWaiting ? "视频任务等待中..." : "视频模型生成中..." : "按文案生成视频"}
+              {submitting ? "正在提交视频任务..." : taskIsActive ? taskIsWaiting ? "视频任务等待中..." : "分镜或合成进行中..." : "按脚本生成视频"}
             </button>
             {taskIsWaiting ? (
               <button className="cancelVideoButton" disabled={canceling} type="button" onClick={() => void cancelVideo()}>{canceling ? "正在取消..." : "取消生成"}</button>
@@ -2130,7 +2204,7 @@ function ResultRail(input: {
   const progress = input.job?.progress;
   const resultCount = input.job?.results?.length ?? 0;
   const progressText = progress ? `${progress.completed ?? 0}/${progress.total ?? 0}` : "0/0";
-  const stateText = input.job?.status === "succeeded" ? "已完成" : input.job?.status === "partial_failed" ? "部分完成" : input.job?.status === "failed" ? "生成失败" : input.job?.status === "canceled" ? "已取消" : input.job?.status === "queued" ? "等待队列" : input.job?.status === "running" || input.job?.status === "submitted" ? "正在生成" : input.modeLabel;
+  const stateText = input.job?.status === "succeeded" ? "已完成" : input.job?.status === "partial_failed" ? "部分完成" : input.job?.status === "failed" ? "生成失败" : input.job?.status === "canceled" ? "已取消" : input.job?.status === "queued" ? "等待队列" : input.job?.status === "composing" ? "正在合成" : input.job?.status === "running" || input.job?.status === "submitted" ? "正在生成" : input.modeLabel;
   const firstResult = input.job?.results?.[0];
   const videoUrl = input.job?.result?.url;
   return (

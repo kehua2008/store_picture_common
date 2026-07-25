@@ -31,7 +31,7 @@ type VideoRecordJob = {
   chargedCredits?: number;
   createdAt: string;
   updatedAt: string;
-  status: "running" | "submitted" | "succeeded" | "failed" | "canceled";
+  status: "running" | "submitted" | "composing" | "succeeded" | "failed" | "canceled";
   progress: { completed: number; total: number };
   result?: { url?: string; localUrl?: string; filename?: string; mimeType?: string; createdAt: string };
   error?: { code: string; message: string; retryable: boolean };
@@ -61,7 +61,7 @@ export default function GenerationRecordsPage() {
       .flatMap((job) => job.results.map((image, index) => ({ job, image, index }))),
     [jobs, selectedJobId]
   );
-  const hasActiveJobs = jobs.some((job) => job.status === "running") || videoJobs.some((job) => job.status === "submitted" || job.status === "running");
+  const hasActiveJobs = jobs.some((job) => job.status === "running") || videoJobs.some((job) => job.status === "submitted" || job.status === "running" || job.status === "composing");
 
   useEffect(() => {
     void refresh();
@@ -169,7 +169,7 @@ export default function GenerationRecordsPage() {
 
       <section className="recordsNotice">
         <strong>{status}</strong>
-        <span>{isLoading ? "正在刷新..." : `${works.length} 张图片 · ${videoJobs.length} 个视频任务 · ${jobs.filter((job) => job.status === "running").length + videoJobs.filter((job) => job.status === "running" || job.status === "submitted").length} 个运行中任务`}</span>
+        <span>{isLoading ? "正在刷新..." : `${works.length} 张图片 · ${videoJobs.length} 个视频任务 · ${jobs.filter((job) => job.status === "running").length + videoJobs.filter((job) => job.status === "running" || job.status === "submitted" || job.status === "composing").length} 个运行中任务`}</span>
       </section>
 
       <section className="recordsWorkspace">
@@ -314,6 +314,7 @@ function statusText(job: GenerationRecordJob): string {
 function videoStatusText(job: VideoRecordJob): string {
   if (job.status === "running") return "提交中";
   if (job.status === "submitted") return "生成中";
+  if (job.status === "composing") return "正在合成";
   if (job.status === "succeeded") return "生成完成";
   if (job.status === "canceled") return "已取消";
   return job.error?.message ?? "生成失败";

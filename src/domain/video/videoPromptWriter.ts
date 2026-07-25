@@ -17,6 +17,7 @@ export type VideoPromptWriterInput = {
 export type VideoPromptWriterResult = {
   script: string;
   summary: string;
+  plan: VideoCreativePlan;
   provider: string;
   model: string;
 };
@@ -52,11 +53,12 @@ export class OpenAICompatibleVideoPromptWriter {
             role: "system",
             content: [
               "You are a senior ecommerce short-video director for general merchandise products.",
-              "Return strict JSON only with keys script and summary.",
+              "Return strict JSON only with keys summary and plan.",
               "Write in Chinese.",
               "The script must be a concrete shot-by-shot prompt for a video-generation model.",
               "Preserve product facts from the uploaded product images. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
-              "Do not add brands, watermarks, QR codes, prices, certifications, unsupported claims, or nonexistent product features."
+              "Do not add brands, watermarks, QR codes, prices, certifications, unsupported claims, or nonexistent product features.",
+              "plan must contain productProfile and scenes. Every scene lasts five seconds or less, has one visual action, an anchorImageIndex, narration and caption."
             ].join(" ")
           },
           { role: "user", content: buildUserContent(input) }
@@ -69,10 +71,13 @@ export class OpenAICompatibleVideoPromptWriter {
     }
     const body = await response.json().catch(() => undefined) as ChatCompletionResponse | undefined;
     const parsed = parseResult(body?.choices?.[0]?.message?.content);
-    if (!parsed?.script) throw new VideoPromptWriterError("video_prompt_writer_invalid_response", "AI提示词代写返回内容无法识别，请重试。", 502);
+    if (!parsed) throw new VideoPromptWriterError("video_prompt_writer_invalid_response", "AI提示词代写返回内容无法识别，请重试。", 502);
+    const planInput = toPlanInput(input);
+    const plan = normalizeVideoCreativePlan(parsed.plan, planInput);
     return {
-      script: limitScript(parsed.script),
+      script: limitScript(parsed.script || scriptFromVideoCreativePlan(plan)),
       summary: parsed.summary || (input.mode === "revise" ? "已按补充意见重写视频提示词。" : "已根据商品图和需求生成视频提示词。"),
+      plan,
       provider: providerName(this.options.baseUrl),
       model: this.options.model
     };
@@ -97,30 +102,44 @@ function buildUserContent(input: VideoPromptWriterInput): Array<Record<string, u
     `Controls: category=${input.category}; video type=${input.videoGoal}; platform=${input.platform}; duration=${input.durationSeconds}s; resolution=${input.outputResolution}; music=${input.musicMode}; voiceover=${input.voiceoverMode}; subtitle=${input.subtitleMode}.`,
     [
       "Output requirements:",
-      "- JSON only: {\"script\":\"...\",\"summary\":\"...\"}.",
-      "- script includes a clear product identity rule and numbered shot plan.",
-      "- Each shot specifies time range, subject, action, camera movement, lighting and subtitle/audio behavior.",
+      "- JSON only: {\"summary\":\"...\",\"plan\":{...}}. You may additionally return script.",
+      "- plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges and verified.",
+      "- plan.scenes must contain exactly one 5-second-or-less scene per 5 seconds of duration. Each scene has anchorImageIndex, purpose, visualPrompt, narration and caption.",
       "- Keep within selected duration; product remains visible and recognizable.",
       "- Do not invent functions, materials, text, packaging, accessories, people, or a scene unsupported by the product image and brief."
     ].join("\n")
   ].filter(Boolean).join("\n\n");
   return [
     { type: "text", text },
-    ...input.productImages.slice(0, 3).map((url) => ({ type: "image_url", image_url: { url } }))
+    ...input.productImages.slice(0, 6).map((url) => ({ type: "image_url", image_url: { url } }))
   ];
 }
 
-function parseResult(content: unknown): { script: string; summary: string } | undefined {
+function parseResult(content: unknown): { script: string; summary: string; plan?: unknown } | undefined {
   if (typeof content !== "string" || !content.trim()) return undefined;
   const trimmed = content.trim();
   const json = safeJson(trimmed) ?? safeJson(extractJsonObject(trimmed));
   if (json && typeof json === "object") {
-    const candidate = json as { script?: unknown; summary?: unknown };
-    if (typeof candidate.script === "string" && candidate.script.trim()) {
-      return { script: candidate.script.trim(), summary: typeof candidate.summary === "string" ? candidate.summary.trim() : "" };
+    const candidate = json as { script?: unknown; summary?: unknown; plan?: unknown };
+    if ((typeof candidate.script === "string" && candidate.script.trim()) || candidate.plan) {
+      return { script: typeof candidate.script === "string" ? candidate.script.trim() : "", summary: typeof candidate.summary === "string" ? candidate.summary.trim() : "", plan: candidate.plan };
     }
   }
-  return { script: trimmed, summary: "" };
+  return { script: trimmed, summary: "", plan: undefined };
+}
+
+function toPlanInput(input: VideoPromptWriterInput) {
+  return {
+    brief: input.brief,
+    durationSeconds: input.durationSeconds,
+    imageCount: input.productImages.length,
+    category: input.category,
+    videoGoal: input.videoGoal,
+    platform: input.platform,
+    musicMode: input.musicMode,
+    voiceoverMode: input.voiceoverMode,
+    subtitleMode: input.subtitleMode
+  };
 }
 
 function safeJson(value: string | undefined): unknown {
@@ -145,3 +164,4 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
 function providerName(baseUrl: string): string {
   return baseUrl.toLowerCase().includes("yunwu") ? "yunwu" : baseUrl.toLowerCase().includes("openai") ? "openai" : "openai_compatible";
 }
+import { normalizeVideoCreativePlan, scriptFromVideoCreativePlan, type VideoCreativePlan } from "./videoCreativePlan";

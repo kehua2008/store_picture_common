@@ -4,10 +4,19 @@ import { NextResponse } from "next/server";
 import { getAuthContextFromRequest } from "../../../src/server/auth";
 import { rechargeOrderRepository, videoJobService } from "../../../src/server/services";
 import { persistentUploadSubdir } from "../../../src/server/storagePaths";
+import { normalizeVideoCreativePlan, videoScenePrompt } from "../../../src/domain/video/videoCreativePlan";
+import { FfmpegVideoComposer, videoCompositionCapabilities } from "../../../src/server/videoComposer";
 
 const maxImageBytes = 8 * 1024 * 1024;
+videoJobService.useComposer(new FfmpegVideoComposer());
 
 export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.get("capabilities") === "1") {
+    return NextResponse.json({
+      capabilities: { maxSegmentSeconds: 5, maxVisualReferencesPerSegment: 1, supportsNativeAudio: false },
+      composition: videoCompositionCapabilities()
+    });
+  }
   const auth = await getAuthContextFromRequest(request);
   if (!auth) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
   await videoJobService.runDueJobs();
@@ -26,15 +35,31 @@ export async function POST(request: Request) {
   const images = form.getAll("images").filter(isImageFile);
   if (!images.length) return NextResponse.json({ error: "missing_image_upload", message: "请至少上传一张商品图片。" }, { status: 400 });
   if (images.some((image) => image.size > maxImageBytes)) return NextResponse.json({ error: "image_file_too_large", maxBytes: maxImageBytes }, { status: 400 });
+  const duration = clampNumber(form.get("durationSeconds"), 5, 5, 15);
   const plan = await rechargeOrderRepository.pricingPlanForCustomer(auth.user.id);
-  const reservedCredits = plan.videoCreditsPerUnit;
+  const inputPlan = {
+    brief: formText(form, "brief") ?? formText(form, "prompt"),
+    durationSeconds: duration,
+    imageCount: Math.min(images.length, 6),
+    category: formText(form, "category"),
+    videoGoal: formText(form, "videoGoal"),
+    platform: formText(form, "platform"),
+    musicMode: formText(form, "musicMode"),
+    voiceoverMode: formText(form, "voiceoverMode"),
+    subtitleMode: formText(form, "subtitleMode")
+  };
+  const creativePlan = normalizeVideoCreativePlan(parseJson(formText(form, "creativePlan")), inputPlan);
+  const composition = videoCompositionCapabilities();
+  if (creativePlan.audioMode === "tts" && !composition.ttsAvailable) return NextResponse.json({ error: "tts_not_configured", message: "AI 配音尚未配置，当前不能提交配音视频。请选择不需要配音，或联系管理员完成阿里云智能语音配置。" }, { status: 503 });
+  if (creativePlan.musicMode === "library" && !composition.musicLibraryAvailable) return NextResponse.json({ error: "music_library_not_configured", message: "站内可商用音乐库尚未配置，当前不能提交自动配乐视频。请选择不需要背景音乐。" }, { status: 503 });
+  if (!composition.composerAvailable) return NextResponse.json({ error: "composer_not_configured", message: "视频合成服务暂不可用，请稍后重试。" }, { status: 503 });
+  const reservedCredits = plan.videoCreditsPerUnit * creativePlan.scenes.length;
   const account = await rechargeOrderRepository.account(auth.user.id);
   if (account.balanceCredits < reservedCredits) return NextResponse.json({ error: "insufficient_credits", requiredCredits: reservedCredits, account }, { status: 402 });
   const batch = `video-${crypto.randomUUID()}`;
   const baseUrl = publicBaseUrl(request);
   if (!baseUrl) return NextResponse.json({ error: "public_base_url_required", message: "视频生成需要可供模型访问的公网素材地址，请配置 APP_PUBLIC_BASE_URL。" }, { status: 503 });
   const urls = await Promise.all(images.slice(0, 6).map((image, index) => storeVideoImage(batch, index, image, baseUrl)));
-  const duration = clampNumber(form.get("durationSeconds"), 5, 1, 15);
   const job = await videoJobService.createJob({
     customerId: auth.user.id,
     createdByActorId: auth.actor.actorId,
@@ -44,7 +69,9 @@ export async function POST(request: Request) {
     aspectRatio: formText(form, "aspectRatio") ?? "9:16",
     durationSeconds: duration,
     outputResolution: formText(form, "outputResolution") === "720p" ? "720p" : "480p",
-    reservedCredits
+    reservedCredits,
+    creativePlan,
+    scenes: creativePlan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, creativePlan.productProfile), anchorImageIndex: scene.anchorImageIndex, status: "queued" }))
   });
   try {
     await rechargeOrderRepository.reserveGenerationCredits({ customerId: auth.user.id, generationJobId: job.id, credits: reservedCredits, actorId: auth.actor.actorId, actorName: auth.actor.actorName, reason: "创建视频任务冻结预计积分" });
@@ -62,3 +89,4 @@ function publicBaseUrl(request: Request): string | undefined { const configured 
 function formText(form: FormData, key: string): string | undefined { const value = form.get(key); return typeof value === "string" && value.trim() ? value.trim().slice(0, 8_000) : undefined; }
 function clampNumber(value: FormDataEntryValue | null, fallback: number, min: number, max: number) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.trunc(parsed))) : fallback; }
 function safe(value: string) { return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100) || "image"; }
+function parseJson(value: string | undefined): unknown { if (!value) return undefined; try { return JSON.parse(value); } catch { return undefined; } }

@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { describe, expect, it } from "vitest";
 import { FileVideoJobRepository, VideoJobService } from "../../src/domain/jobs/videoJobs";
+import { buildFallbackVideoCreativePlan, videoScenePrompt } from "../../src/domain/video/videoCreativePlan";
 
 describe("VideoJobService", () => {
   it("queues a retryable provider submission failure instead of charging or failing immediately", async () => {
@@ -78,6 +79,25 @@ describe("VideoJobService", () => {
     } finally {
       if (previousTimeout === undefined) delete process.env.VIDEO_JOB_TIMEOUT_MS;
       else process.env.VIDEO_JOB_TIMEOUT_MS = previousTimeout;
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("persists each visual scene before composing a multi-scene final video", async () => {
+    const dataDir = path.join(os.tmpdir(), `common-video-${crypto.randomUUID()}`);
+    const submitted: string[] = [];
+    const plan = buildFallbackVideoCreativePlan({ durationSeconds: 15, imageCount: 3, brief: "出租车投放视频" });
+    try {
+      const service = new VideoJobService(new FileVideoJobRepository({ dataDir }), {
+        async create(input) { submitted.push(input.images[0]); return { ok: true as const, task: { id: `task-${submitted.length}`, model: "kling" } }; },
+        async get(input) { return { ok: true as const, status: "succeed", outputUrl: `https://example.test/${input.id}.mp4` }; }
+      }, {}, { async compose(job) { return { ok: true as const, url: `https://example.test/${job.id}-final.mp4` }; } });
+      const job = await service.createJob({ customerId: "customer-4", prompt: "video", images: ["one", "two", "three"], aspectRatio: "9:16", durationSeconds: 15, outputResolution: "480p", reservedCredits: 900, creativePlan: plan, scenes: plan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, plan.productProfile), anchorImageIndex: scene.anchorImageIndex, status: "queued" })) });
+      for (let index = 0; index < 7; index += 1) await service.run(job.id);
+      const completed = await service.get(job.id);
+      expect(submitted).toEqual(["one", "two", "three"]);
+      expect(completed).toMatchObject({ status: "succeeded", progress: { completed: 3, total: 3 }, result: { url: `https://example.test/${job.id}-final.mp4` } });
+    } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }
   });

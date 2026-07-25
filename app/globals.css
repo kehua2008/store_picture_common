@@ -4152,6 +4152,46 @@ pre {
   text-align: center;
 }
 
+.videoCreativePlan {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #cfe3ff;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.videoCreativePlan > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.videoCreativePlan strong { color: #0f4b9c; }
+.videoCreativePlan span,
+.videoCreativePlan p { color: #5d7697; margin: 0; }
+.videoScenePlanList { display: grid; gap: 10px; }
+.videoScenePlanList article {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #dceafe;
+  border-radius: 12px;
+  background: #f9fcff;
+}
+.videoScenePlanList textarea,
+.videoScenePlanList input {
+  width: 100%;
+  border: 1px solid #cfe0f5;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #173a67;
+  background: #fff;
+  font: inherit;
+  box-sizing: border-box;
+}
+.videoScenePlanList textarea { min-height: 86px; resize: vertical; }
+.videoScenePlanList label { display: grid; gap: 5px; color: #557393; font-size: 13px; }
+
 .cancelVideoButton {
   background: rgba(255, 255, 255, 0.84);
   border: 1px solid rgba(208, 74, 89, 0.42);
