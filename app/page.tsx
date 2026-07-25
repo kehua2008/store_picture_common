@@ -459,6 +459,7 @@ export default function Home() {
       setCurrentActor(undefined);
       setCreditAccount(undefined);
       setUserJobs([]);
+      setLatestVideoJob(undefined);
       return;
     }
     const body = await response.json().catch(() => ({}));
@@ -466,6 +467,14 @@ export default function Home() {
     setCurrentActor(body.actor);
     setCreditAccount(body.account);
     setIsLoggedIn(Boolean(body.user));
+    if (body.user) void restoreActiveVideoJob();
+  }
+
+  async function restoreActiveVideoJob() {
+    const response = await fetch("/api/video-jobs?scope=mine").catch(() => undefined);
+    const body = await response?.json().catch(() => ({}));
+    const jobs = Array.isArray(body?.jobs) ? body.jobs as UserJobView[] : [];
+    setLatestVideoJob(jobs.find((job) => job.status === "queued" || job.status === "submitted"));
   }
 
   async function refreshUserJobs() {
@@ -711,7 +720,7 @@ export default function Home() {
     return (
       <main className="homePortal">
         <header className="portalHeader">
-          <BrandMark onHome={() => setView("home")} />
+          <BrandMark />
           {accountButton}
         </header>
         {userPanel}
@@ -742,7 +751,7 @@ export default function Home() {
     return (
       <main className="homePortal choicePortal">
         <header className="portalHeader">
-          <BrandMark onHome={() => setView("home")} />
+          <BrandMark />
           <button type="button" onClick={() => setView("home")}>返回首页</button>
           {accountButton}
         </header>
@@ -781,9 +790,9 @@ export default function Home() {
   return (
     <form className={view === "video" ? "station videoStation" : "station"} onSubmit={(event) => event.preventDefault()}>
       <header className="stationHeader">
-        <button className="logoMark" type="button" onClick={() => setView("home")} aria-label="返回首页">
+        <a className="logoMark" href="https://depthshopai.cn/" aria-label="返回深图科技总站">
           <img alt="" src="/brand-logo.svg" />
-        </button>
+        </a>
         <h1>
           通用百货AI创作平台
         </h1>
@@ -797,11 +806,13 @@ export default function Home() {
             </>
           )}
         </div>
-        <nav>
-          <button className={view === "image" ? "active" : ""} type="button" onClick={() => setView("image")}>图像生成</button>
-          <button className={view === "video" ? "active" : ""} type="button" onClick={enterVideoChoice}>视频生成</button>
-        </nav>
-        {accountButton}
+        <div className="stationHeaderActions">
+          <nav>
+            <button className={view === "image" ? "active" : ""} type="button" onClick={() => setView("image")}>图像生成</button>
+            <button className={view === "video" ? "active" : ""} type="button" onClick={enterVideoChoice}>视频生成</button>
+          </nav>
+          {accountButton}
+        </div>
       </header>
       {userPanel}
 
@@ -866,15 +877,15 @@ export default function Home() {
   );
 }
 
-function BrandMark({ onHome }: { onHome: () => void }) {
+function BrandMark() {
   return (
-    <button className="brandMark" type="button" onClick={onHome}>
+    <a className="brandMark" href="https://depthshopai.cn/" aria-label="返回深图科技总站">
       <img alt="" src="/brand-logo.svg" />
       <span>
         <strong>通用百货AI创作平台</strong>
         <em>Common Merchandise Station</em>
       </span>
-    </button>
+    </a>
   );
 }
 
@@ -1060,7 +1071,6 @@ function ImageWorkbench(input: {
   const currentCategory = categories.find((item) => item.id === input.category) ?? categories[0];
   const currentTask = tasks.find((item) => item.id === input.activeTask) ?? tasks[0];
   const currentStyle = styles.find((item) => item.id === input.style) ?? styles[0];
-  const currentStrength = strengths.find((item) => item.id === input.strength) ?? strengths[0];
   const taskMode = input.suite === "detail" ? "detail_suite" : "single";
   const selectedCategoryGroup = commonCategoryGroups.find((item) => item.id === categoryGroupId) ?? commonCategoryGroups[0];
   const productCategoryPresets = selectedCategoryGroup.categories.map((id) => categories.find((item) => item.id === id)).filter(Boolean) as typeof categories;
@@ -1296,13 +1306,6 @@ function ImageWorkbench(input: {
 
         <section>
           <StepTitle index="03" title="商品展示方式" />
-          <div className="modeSwitch" role="group" aria-label="商品展示方式">
-            {displayProfiles.map((item) => (
-              <button className={displayProfileId === item.id ? "active" : ""} key={item.id} type="button" onClick={() => selectDisplayProfile(item)}>
-                {item.label}
-              </button>
-            ))}
-          </div>
           <div className="modelPanel commonDisplayPanel">
             {displayProfiles.map((item) => (
               <button className={displayProfileId === item.id ? "modelOption active" : "modelOption"} key={item.id} type="button" onClick={() => selectDisplayProfile(item)}>
@@ -1313,10 +1316,6 @@ function ImageWorkbench(input: {
                 </span>
               </button>
             ))}
-          </div>
-          <div className="platformProtocol">
-            <strong>{displayProfiles.find((item) => item.id === displayProfileId)?.label}</strong>
-            <span>百货不固定鞋类上脚模特库，只按商品真实需求选择人物参与程度。</span>
           </div>
         </section>
 
@@ -1382,13 +1381,7 @@ function ImageWorkbench(input: {
         </section>
 
         <section>
-          <StepTitle index="05" title="图片参数（核心技术）" />
-          <label className="photoMetadataToggle">
-            <input checked={simulatePhotoMetadata} onChange={(event) => setSimulatePhotoMetadata(event.target.checked)} type="checkbox" />
-            <span>
-              <em>勾选此项，易避开平台AI排查,更易获取流量。</em>
-            </span>
-          </label>
+          <StepTitle index="05" title="生成表现" />
           <div className="strengthGrid compactStrengthGrid">
             {strengths.map((item) => (
               <button className={input.strength === item.id ? "active" : ""} key={item.id} type="button" onClick={() => input.setStrength(item.id)}>
@@ -1400,7 +1393,18 @@ function ImageWorkbench(input: {
         </section>
 
         <section>
-          <StepTitle index="06" title="提示词补充" />
+          <StepTitle index="06" title="图片参数" />
+          <label className="photoMetadataToggle">
+            <input checked={simulatePhotoMetadata} onChange={(event) => setSimulatePhotoMetadata(event.target.checked)} type="checkbox" />
+            <span>
+              <strong>模拟相机拍摄参数</strong>
+              <em>勾选此项，易避开平台AI排查,更易获取流量。</em>
+            </span>
+          </label>
+        </section>
+
+        <section>
+          <StepTitle index="07" title="提示词补充" />
           <div className="promptAssistBox">
             <div>
               <strong>可不填</strong>

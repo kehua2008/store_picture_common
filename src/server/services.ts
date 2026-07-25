@@ -50,6 +50,10 @@ export const videoJobService = new VideoJobService(videoJobRepository, new Yunwu
     if (job.reservedCredits) await rechargeOrderRepository.debitReservedGenerationCredits({ customerId: job.customerId, generationJobId: job.id, credits: job.reservedCredits, actorId: job.createdByActorId, actorName: job.createdByActorName, reason: "视频任务已提交模型，扣除冻结积分" });
   },
   async onFailed(job) {
+    if (job.chargedCredits) {
+      await rechargeOrderRepository.refundDebitedGenerationCredits({ customerId: job.customerId, generationJobId: job.id, credits: job.chargedCredits, actorId: job.createdByActorId, actorName: job.createdByActorName, reason: "视频任务失败或超时，退回已扣积分" });
+      return;
+    }
     if (job.reservedCredits) await rechargeOrderRepository.releaseReservedGenerationCredits({ customerId: job.customerId, generationJobId: job.id, credits: job.reservedCredits, actorId: job.createdByActorId, actorName: job.createdByActorName, reason: "视频任务失败，释放冻结积分" });
   },
   async onCanceled(job) {

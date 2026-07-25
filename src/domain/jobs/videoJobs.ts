@@ -5,6 +5,7 @@ import { persistentDataDir } from "../../server/storagePaths";
 export type VideoJobStatus = "queued" | "submitted" | "succeeded" | "failed" | "canceled";
 export type VideoError = { code: string; message: string; retryable: boolean };
 const videoRetryDelaysMs = [15_000, 30_000, 60_000, 120_000, 300_000, 600_000] as const;
+const defaultVideoProcessingTimeoutMs = 20 * 60_000;
 
 export interface VideoJob {
   id: string;
@@ -24,6 +25,7 @@ export interface VideoJob {
   updatedAt: string;
   providerTaskId?: string;
   providerModel?: string;
+  submittedAt?: string;
   attemptCount?: number;
   nextAttemptAt?: string;
   result?: { url: string; createdAt: string };
@@ -58,7 +60,7 @@ export class FileVideoJobRepository {
 
 export class VideoJobService {
   private readonly active = new Set<string>();
-  constructor(private readonly repository: FileVideoJobRepository, private readonly provider: VideoProvider, private readonly settlement: { onSubmitted?: (job: VideoJob) => Promise<void>; onFailed?: (job: VideoJob) => Promise<void>; onCanceled?: (job: VideoJob) => Promise<void> } = {}) {}
+  constructor(private readonly repository: FileVideoJobRepository, private readonly provider: VideoProvider, private readonly settlement: { onSubmitted?: (job: VideoJob) => Promise<void>; onSucceeded?: (job: VideoJob) => Promise<void>; onFailed?: (job: VideoJob) => Promise<void>; onCanceled?: (job: VideoJob) => Promise<void> } = {}) {}
   createJob(input: Omit<VideoJob, "id" | "createdAt" | "updatedAt" | "status" | "progress" | "chargedCredits">) { return this.repository.create(input); }
   list(customerId: string) { return this.repository.allForCustomer(customerId); }
   get(id: string) { return this.repository.find(id); }
@@ -81,15 +83,20 @@ export class VideoJobService {
         const created = await this.provider.create(job);
         const current = await this.repository.find(id); if (!current || current.status === "canceled") return current;
         if (!created.ok) return this.failOrRetry(current, created.error);
-        const submitted = await this.repository.update(id, (item) => ({ ...item, status: "submitted", providerTaskId: created.task.id, providerModel: created.task.model, chargedCredits: item.reservedCredits }));
+        const submitted = await this.repository.update(id, (item) => ({ ...item, status: "submitted", providerTaskId: created.task.id, providerModel: created.task.model, submittedAt: new Date().toISOString(), chargedCredits: item.reservedCredits }));
         if (submitted) await this.settlement.onSubmitted?.(submitted);
         return submitted;
       }
       if (!job.providerTaskId) return this.fail(job, { code: "provider_unknown", message: "视频任务缺少供应商任务编号。", retryable: false });
       const status = await this.provider.get({ id: job.providerTaskId, model: job.providerModel });
-      if (!status.ok) return status.error.retryable ? job : this.fail(job, status.error);
-      if (isSuccess(status.status) && status.outputUrl) return this.repository.update(id, (item) => ({ ...item, status: "succeeded", progress: { completed: 1, total: 1 }, result: { url: status.outputUrl!, createdAt: new Date().toISOString() }, error: undefined }));
+      if (!status.ok) return status.error.retryable && !hasTimedOut(job) ? job : this.fail(job, hasTimedOut(job) ? timeoutError() : status.error);
+      if (isSuccess(status.status) && status.outputUrl) {
+        const succeeded = await this.repository.update(id, (item) => ({ ...item, status: "succeeded", progress: { completed: 1, total: 1 }, result: { url: status.outputUrl!, createdAt: new Date().toISOString() }, error: undefined }));
+        if (succeeded) await this.settlement.onSucceeded?.(succeeded);
+        return succeeded;
+      }
       if (isFailure(status.status)) return this.fail(job, { code: "provider_unknown", message: "视频模型未能完成本次任务。", retryable: false });
+      if (hasTimedOut(job)) return this.fail(job, timeoutError());
       return job;
     } finally { this.active.delete(id); }
   }
@@ -104,5 +111,14 @@ export class VideoJobService {
   private async fail(job: VideoJob, error: VideoError) { const failed = await this.repository.update(job.id, (item) => ({ ...item, status: "failed", error })); if (failed) await this.settlement.onFailed?.(failed); return failed; }
 }
 
-function isSuccess(status: string) { return ["succeeded", "success", "completed", "done", "finished"].some((word) => status.toLowerCase().includes(word)); }
+function isSuccess(status: string) { return ["succeed", "success", "completed", "done", "finished"].some((word) => status.toLowerCase().includes(word)); }
 function isFailure(status: string) { return ["failed", "error", "canceled", "cancelled"].some((word) => status.toLowerCase().includes(word)); }
+function hasTimedOut(job: VideoJob) {
+  const startedAt = new Date(job.submittedAt ?? job.createdAt).getTime();
+  return Number.isFinite(startedAt) && Date.now() - startedAt >= videoProcessingTimeoutMs();
+}
+function videoProcessingTimeoutMs() {
+  const configured = Number(process.env.VIDEO_JOB_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured >= 60_000 ? Math.trunc(configured) : defaultVideoProcessingTimeoutMs;
+}
+function timeoutError(): VideoError { return { code: "provider_timeout", message: "视频生成超过 20 分钟仍未完成，任务已自动取消并退回积分。", retryable: false }; }

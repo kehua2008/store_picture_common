@@ -18,6 +18,7 @@ export type CreditLedgerEntryType =
   | "generation_reserve"
   | "generation_debit"
   | "generation_release"
+  | "generation_refund"
   | "style_analysis_debit"
   | "usage_debit"
   | "admin_adjustment";
@@ -253,6 +254,33 @@ export class FileRechargeOrderRepository {
         actorId: input.actorId,
         actorName: input.actorName,
         reason: input.reason ?? "生成任务失败或取消释放冻结积分"
+      }, now);
+      data.accounts = data.accounts.map((item) => item.customerId === account.customerId ? account : item);
+      await this.writeData(data);
+      return { account, ledgerEntry };
+    });
+  }
+
+  async refundDebitedGenerationCredits(input: { customerId: string; generationJobId: string; credits: number; reason?: string; actorId?: string; actorName?: string }): Promise<{ account: RechargeAccount; ledgerEntry: CreditLedgerEntry } | undefined> {
+    if (!Number.isInteger(input.credits) || input.credits <= 0) throw new Error("invalid_credit_amount");
+    return this.runExclusive(async () => {
+      const data = await this.readData();
+      if (data.ledgerEntries.some((entry) => entry.generationJobId === input.generationJobId && entry.type === "generation_refund")) return undefined;
+      const debitedCredits = data.ledgerEntries
+        .filter((entry) => entry.generationJobId === input.generationJobId && entry.type === "generation_debit")
+        .reduce((sum, entry) => sum - entry.deltaFrozenCredits, 0);
+      const credits = Math.min(input.credits, debitedCredits);
+      if (credits <= 0) return undefined;
+      const now = new Date().toISOString();
+      const account = findOrCreateAccount(data, input.customerId, now);
+      const ledgerEntry = appendLedgerEntry(data, account, {
+        type: "generation_refund",
+        deltaBalanceCredits: credits,
+        deltaFrozenCredits: 0,
+        generationJobId: input.generationJobId,
+        actorId: input.actorId,
+        actorName: input.actorName,
+        reason: input.reason ?? "生成任务超时或失败，退回已扣积分"
       }, now);
       data.accounts = data.accounts.map((item) => item.customerId === account.customerId ? account : item);
       await this.writeData(data);

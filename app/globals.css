@@ -1640,6 +1640,13 @@ pre {
   width: auto;
 }
 
+.imageActionRow .generateButton {
+  font-size: 18px;
+  min-height: 60px;
+  min-width: 220px;
+  padding: 0 42px;
+}
+
 .imageActionRow span {
   text-align: center;
 }
@@ -2078,7 +2085,7 @@ pre {
   display: grid;
   gap: 14px;
   grid-area: header;
-  grid-template-columns: auto minmax(250px, auto) minmax(260px, 1fr) auto auto;
+  grid-template-columns: auto minmax(250px, auto) minmax(260px, 1fr) auto;
   left: auto;
   min-height: 74px;
   padding: 10px 28px;
@@ -2168,6 +2175,15 @@ pre {
   min-height: 40px;
   padding: 0 18px;
   text-decoration: none;
+}
+
+.stationHeaderActions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 24px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .stationHeader nav {
@@ -3359,6 +3375,12 @@ pre {
   min-width: 0;
 }
 
+.photoMetadataToggle strong {
+  color: #12385f;
+  font-size: 13px;
+  font-weight: 950;
+}
+
 .photoMetadataToggle em {
   color: var(--muted);
   font-size: 10px;
@@ -3367,6 +3389,7 @@ pre {
 }
 
 .compactStrengthGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 0;
 }
 
@@ -4169,12 +4192,16 @@ pre {
     justify-self: stretch;
   }
 
+  .stationHeaderActions {
+    grid-column: 1 / 4;
+    grid-row: 2;
+    justify-content: space-between;
+    width: 100%;
+  }
+
   .stationHeader nav {
     display: grid;
-    grid-column: 1;
-    grid-row: 2;
     grid-template-columns: repeat(2, max-content);
-    justify-self: start;
     width: auto;
   }
 
@@ -4186,9 +4213,7 @@ pre {
   }
 
   .stationHeader .accountButton {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
+    flex: 0 0 auto;
   }
 
   .controlRail,
@@ -4255,16 +4280,12 @@ pre {
     justify-content: flex-start;
   }
 
-  .stationHeader nav {
+  .stationHeaderActions {
     grid-column: 1;
     grid-row: auto;
-    justify-content: stretch;
-  }
-
-  .stationHeader .accountButton {
-    grid-column: 1;
-    grid-row: auto;
-    justify-self: stretch;
+    gap: 12px;
+    justify-content: space-between;
+    width: 100%;
   }
 
   .stationHeader nav button,
@@ -6342,6 +6363,19 @@ pre {
   min-width: 0;
 }
 
+.recordsTaskList .recordsVideoTask > div:first-child {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.recordsTaskList .recordsVideoTask > div:first-child span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
 .recordsTaskList b {
   border-radius: 999px;
   font-size: 11px;
@@ -6351,6 +6385,11 @@ pre {
 .recordsTaskList b.running {
   background: #fff7ed;
   color: #c2410c;
+}
+
+.recordsTaskList b.submitted {
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .recordsTaskList b.succeeded {
@@ -7466,6 +7505,19 @@ pre {
   z-index: auto;
 }
 
+/* Portal headers use the same in-flow account control so it cannot cover return actions. */
+.portalHeader .accountButton {
+  position: static;
+  right: auto;
+  top: auto;
+  z-index: auto;
+}
+
+.stationHeader .accountButton.loggedIn {
+  background: linear-gradient(135deg, #0875f5, #08afcf);
+  color: #ffffff;
+}
+
 .stationHeader nav {
   min-width: 0;
 }
@@ -7490,5 +7542,9 @@ pre {
 
   .stationHeader .accountButton {
     flex: 0 0 auto;
+  }
+
+  .portalHeader .accountButton {
+    align-self: flex-start;
   }
 }

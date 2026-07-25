@@ -61,10 +61,17 @@ export default function GenerationRecordsPage() {
       .flatMap((job) => job.results.map((image, index) => ({ job, image, index }))),
     [jobs, selectedJobId]
   );
+  const hasActiveJobs = jobs.some((job) => job.status === "running") || videoJobs.some((job) => job.status === "submitted" || job.status === "running");
 
   useEffect(() => {
     void refresh();
   }, [recordScope]);
+
+  useEffect(() => {
+    if (!hasActiveJobs) return;
+    const timer = window.setInterval(() => { void refresh(); }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [hasActiveJobs, recordScope]);
 
   function selectRecordTab(tab: RecordTab) {
     setActiveRecordTab(tab);
@@ -108,7 +115,7 @@ export default function GenerationRecordsPage() {
     return (
       <main className="generationRecordsPage">
         <header className="recordsHeader">
-          <Link className="recordsBrand" href="/">
+          <Link className="recordsBrand" href="https://depthshopai.cn/">
             <img alt="" src="/brand-logo.svg" />
             <span>通用百货AI创作平台</span>
           </Link>
@@ -126,7 +133,7 @@ export default function GenerationRecordsPage() {
   return (
     <main className="generationRecordsPage">
       <header className="recordsHeader">
-        <Link className="recordsBrand" href="/">
+        <Link className="recordsBrand" href="https://depthshopai.cn/">
           <img alt="" src="/brand-logo.svg" />
           <span>通用百货AI创作平台</span>
         </Link>
@@ -261,7 +268,25 @@ export default function GenerationRecordsPage() {
                 </p>
               </article>
             ))}
-            {!jobs.length ? (
+            {videoJobs.map((job) => (
+              <article className="recordsVideoTask" key={job.id}>
+                <div>
+                  <span>
+                    <strong>视频生成任务</strong>
+                    <em>{job.id}</em>
+                  </span>
+                  <b className={job.status}>{videoStatusText(job)}</b>
+                </div>
+                <div className="recordsProgress"><i style={{ width: job.status === "succeeded" ? "100%" : "45%" }} /></div>
+                <p>
+                  <span>{formatDateTime(job.createdAt)}</span>
+                  <span>{job.createdByActorName ?? "未标记成员"}</span>
+                  <span>预计 {job.reservedCredits ?? 0}</span>
+                  <span>实际 {job.chargedCredits ?? 0}</span>
+                </p>
+              </article>
+            ))}
+            {!jobs.length && !videoJobs.length ? (
               <div className="recordsEmpty">
                 <strong>暂无任务记录</strong>
                 <span>从工作台创建任务后会出现在这里。</span>

@@ -51,19 +51,29 @@ describe("FileRechargeOrderRepository credit ledger", () => {
     });
     expect(duplicateDebit).toBeUndefined();
 
+    const refunded = await repository.refundDebitedGenerationCredits({
+      customerId: "user-1",
+      generationJobId: "job-success",
+      credits: 30
+    });
+    expect(refunded?.account).toMatchObject({ balanceCredits: 100, frozenCredits: 0 });
+    expect(refunded?.ledgerEntry.type).toBe("generation_refund");
+    await expect(repository.refundDebitedGenerationCredits({ customerId: "user-1", generationJobId: "job-success", credits: 30 })).resolves.toBeUndefined();
+
     await repository.reserveGenerationCredits({ customerId: "user-1", generationJobId: "job-failed", credits: 20 });
     const released = await repository.releaseReservedGenerationCredits({
       customerId: "user-1",
       generationJobId: "job-failed",
       credits: 20
     });
-    expect(released?.account).toMatchObject({ balanceCredits: 70, frozenCredits: 0 });
+    expect(released?.account).toMatchObject({ balanceCredits: 100, frozenCredits: 0 });
     expect(released?.ledgerEntry.type).toBe("generation_release");
 
     const data = await repository.all("user-1");
     expect(data.ledgerEntries.map((entry) => entry.type)).toEqual([
       "generation_release",
       "generation_reserve",
+      "generation_refund",
       "generation_debit",
       "generation_reserve",
       "admin_adjustment"
