@@ -18,4 +18,10 @@ describe("video creative plan", () => {
     expect(plan.scenes.map((scene) => scene.anchorImageIndex)).toEqual([1, 1]);
     expect(scriptFromVideoCreativePlan(plan)).toContain("白色保温杯");
   });
+
+  it("preserves the native music mode selected by an audio-capable provider", () => {
+    const fallback = buildFallbackVideoCreativePlan({ durationSeconds: 5, imageCount: 1 });
+    const plan = normalizeVideoCreativePlan({ ...fallback, musicMode: "native" }, { durationSeconds: 5, imageCount: 1 });
+    expect(plan.musicMode).toBe("native");
+  });
 });

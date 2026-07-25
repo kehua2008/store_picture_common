@@ -50,7 +50,7 @@ export interface VideoJob {
 }
 
 type VideoProvider = {
-  create(input: Pick<VideoJob, "prompt" | "images" | "aspectRatio" | "durationSeconds">): Promise<{ ok: true; task: { id: string; model: string } } | { ok: false; error: VideoError }>;
+  create(input: Pick<VideoJob, "prompt" | "images" | "aspectRatio" | "durationSeconds" | "creativePlan">): Promise<{ ok: true; task: { id: string; model: string } } | { ok: false; error: VideoError }>;
   get(input: { id: string; model?: string }): Promise<{ ok: true; status: string; outputUrl?: string } | { ok: false; error: VideoError }>;
 };
 

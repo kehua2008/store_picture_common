@@ -85,6 +85,7 @@ type VideoCompositionCapabilitiesView = {
   composerAvailable: boolean;
   ttsAvailable: boolean;
   musicLibraryAvailable: boolean;
+  nativeMusicAvailable: boolean;
 };
 
 type VideoDraftFileRecord = { id: string; name: string; size: number; type: string; lastModified: number; file: Blob };
@@ -2133,7 +2134,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
             <span>背景音乐</span>
             <div className="videoOptionGrid">
               {musicModeOptions.map((item) => (
-                <button className={musicMode === item ? "active" : ""} disabled={item === "AI自动配乐" && compositionCapabilities?.musicLibraryAvailable === false} key={item} type="button" onClick={() => setMusicMode(item)}>{item === "AI自动配乐" && compositionCapabilities?.musicLibraryAvailable === false ? "AI自动配乐（未配置）" : item}</button>
+                <button className={musicMode === item ? "active" : ""} disabled={item === "AI自动配乐" && compositionCapabilities?.musicLibraryAvailable === false && compositionCapabilities?.nativeMusicAvailable === false} key={item} type="button" onClick={() => setMusicMode(item)}>{item === "AI自动配乐" && compositionCapabilities?.musicLibraryAvailable === false && compositionCapabilities?.nativeMusicAvailable === false ? "AI自动配乐（未配置）" : item}</button>
               ))}
             </div>
             <span>配音</span>

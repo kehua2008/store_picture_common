@@ -1,5 +1,5 @@
 export type VideoAudioMode = "none" | "tts";
-export type VideoMusicMode = "none" | "library";
+export type VideoMusicMode = "none" | "library" | "native";
 export type VideoCaptionMode = "none" | "burned";
 
 export type ProductProfile = {
@@ -119,7 +119,7 @@ export function normalizeVideoCreativePlan(candidate: unknown, input: VideoPlanI
     productProfile: normalizeProfile(raw.productProfile, fallback.productProfile),
     scenes: fallback.scenes.map((base, index) => normalizeScene(scenes[index], base, imageCount)),
     audioMode: raw.audioMode === "tts" || raw.audioMode === "none" ? raw.audioMode : fallback.audioMode,
-    musicMode: raw.musicMode === "library" || raw.musicMode === "none" ? raw.musicMode : fallback.musicMode,
+    musicMode: raw.musicMode === "library" || raw.musicMode === "native" || raw.musicMode === "none" ? raw.musicMode : fallback.musicMode,
     captionMode: raw.captionMode === "burned" || raw.captionMode === "none" ? raw.captionMode : fallback.captionMode
   };
 }

@@ -13,7 +13,7 @@ videoJobService.useComposer(new FfmpegVideoComposer());
 export async function GET(request: Request) {
   if (new URL(request.url).searchParams.get("capabilities") === "1") {
     return NextResponse.json({
-      capabilities: { maxSegmentSeconds: 5, maxVisualReferencesPerSegment: 1, supportsNativeAudio: false },
+      capabilities: { maxSegmentSeconds: 5, maxVisualReferencesPerSegment: 1, supportsNativeAudio: videoCompositionCapabilities().nativeMusicAvailable },
       composition: videoCompositionCapabilities()
     });
   }
@@ -48,10 +48,11 @@ export async function POST(request: Request) {
     voiceoverMode: formText(form, "voiceoverMode"),
     subtitleMode: formText(form, "subtitleMode")
   };
-  const creativePlan = normalizeVideoCreativePlan(parseJson(formText(form, "creativePlan")), inputPlan);
+  let creativePlan = normalizeVideoCreativePlan(parseJson(formText(form, "creativePlan")), inputPlan);
   const composition = videoCompositionCapabilities();
+  if (creativePlan.musicMode === "library" && composition.nativeMusicAvailable) creativePlan = { ...creativePlan, musicMode: "native" };
   if (creativePlan.audioMode === "tts" && !composition.ttsAvailable) return NextResponse.json({ error: "tts_not_configured", message: "AI 配音尚未配置，当前不能提交配音视频。请选择不需要配音，或联系管理员完成阿里云智能语音配置。" }, { status: 503 });
-  if (creativePlan.musicMode === "library" && !composition.musicLibraryAvailable) return NextResponse.json({ error: "music_library_not_configured", message: "站内可商用音乐库尚未配置，当前不能提交自动配乐视频。请选择不需要背景音乐。" }, { status: 503 });
+  if (creativePlan.musicMode === "library" && !composition.musicLibraryAvailable) return NextResponse.json({ error: "music_library_not_configured", message: "站内音乐库和原生自动配乐服务均未配置，当前不能提交自动配乐视频。请选择不需要背景音乐。" }, { status: 503 });
   if (!composition.composerAvailable) return NextResponse.json({ error: "composer_not_configured", message: "视频合成服务暂不可用，请稍后重试。" }, { status: 503 });
   const reservedCredits = plan.videoCreditsPerUnit * creativePlan.scenes.length;
   const account = await rechargeOrderRepository.account(auth.user.id);

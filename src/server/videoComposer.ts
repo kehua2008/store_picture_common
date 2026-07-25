@@ -9,13 +9,15 @@ export type VideoCompositionCapabilities = {
   composerAvailable: boolean;
   ttsAvailable: boolean;
   musicLibraryAvailable: boolean;
+  nativeMusicAvailable: boolean;
 };
 
 export function videoCompositionCapabilities(): VideoCompositionCapabilities {
   return {
     composerAvailable: Boolean(ffmpegPath()),
     ttsAvailable: Boolean(process.env.ALIYUN_TTS_APP_KEY?.trim() && process.env.ALIYUN_TTS_TOKEN?.trim()),
-    musicLibraryAvailable: Boolean(process.env.VIDEO_MUSIC_DIR?.trim())
+    musicLibraryAvailable: Boolean(process.env.VIDEO_MUSIC_DIR?.trim()),
+    nativeMusicAvailable: Boolean(process.env.ARK_VIDEO_API_KEY?.trim() && process.env.ARK_VIDEO_BASE_URL?.trim() && process.env.ARK_VIDEO_MODEL?.trim())
   };
 }
 
@@ -25,6 +27,7 @@ export class FfmpegVideoComposer implements VideoComposer {
     if (!capabilities.composerAvailable) return failure("composer_not_configured", "视频合成服务暂未配置，视觉分镜已保留，可在服务恢复后继续合成。", true);
     if (job.creativePlan?.audioMode === "tts" && !capabilities.ttsAvailable) return failure("tts_not_configured", "阿里云智能语音尚未配置，无法生成真实配音。", false);
     if (job.creativePlan?.musicMode === "library" && !capabilities.musicLibraryAvailable) return failure("music_library_not_configured", "站内可商用音乐库尚未配置，无法添加背景音乐。", false);
+    if (job.creativePlan?.musicMode === "native" && !capabilities.nativeMusicAvailable) return failure("native_music_not_configured", "原生自动配乐服务尚未配置。", false);
     const sourceUrls = job.scenes?.map((scene) => scene.resultUrl).filter((url): url is string => Boolean(url)) ?? [];
     if (!sourceUrls.length) return failure("composition_missing_source", "视频合成缺少已完成分镜。", false);
     try {
@@ -39,7 +42,7 @@ export class FfmpegVideoComposer implements VideoComposer {
       const musicFile = job.creativePlan?.musicMode === "library" ? await chooseMusic() : undefined;
       const captionsFile = job.creativePlan?.captionMode === "burned" ? await writeCaptions(job, path.join(workDir, "captions.ass")) : undefined;
       const output = path.join(outputDir, `${job.id}-final.mp4`);
-      await runFfmpeg(buildArgs({ listFile, audioFile, musicFile, captionsFile, output, duration: job.durationSeconds }));
+      await runFfmpeg(buildArgs({ listFile, audioFile, musicFile, nativeAudio: job.creativePlan?.musicMode === "native", captionsFile, output, duration: job.durationSeconds }));
       const baseUrl = process.env.APP_PUBLIC_BASE_URL?.replace(/\/$/, "");
       if (!baseUrl) return failure("public_base_url_required", "视频合成完成，但未配置公网结果地址。", false);
       return { ok: true, url: `${baseUrl}/video-sources/results/${encodeURIComponent(path.basename(output))}` };
@@ -88,14 +91,15 @@ async function writeCaptions(job: VideoJob, destination: string): Promise<string
   return destination;
 }
 
-function buildArgs(input: { listFile: string; audioFile?: string; musicFile?: string; captionsFile?: string; output: string; duration: number }): string[] {
+function buildArgs(input: { listFile: string; audioFile?: string; musicFile?: string; nativeAudio?: boolean; captionsFile?: string; output: string; duration: number }): string[] {
   const args = ["-y", "-f", "concat", "-safe", "0", "-i", input.listFile];
   if (input.audioFile) args.push("-i", input.audioFile);
   if (input.musicFile) args.push("-stream_loop", "-1", "-i", input.musicFile);
-  if (!input.audioFile && !input.musicFile) args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100");
+  if (!input.audioFile && !input.musicFile && !input.nativeAudio) args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100");
   const audioInputs = (input.audioFile ? 1 : 0) + (input.musicFile ? 1 : 0);
   if (input.audioFile && input.musicFile) args.push("-filter_complex", "[1:a]volume=1[a];[2:a]volume=0.16[b];[a][b]amix=inputs=2:duration=first:dropout_transition=0[aout]", "-map", "0:v:0", "-map", "[aout]");
-  else args.push("-map", "0:v:0", "-map", `${audioInputs ? 1 : 1}:a:0`);
+  else if (input.audioFile && input.nativeAudio) args.push("-filter_complex", "[0:a]volume=0.16[music];[1:a]volume=1[voice];[music][voice]amix=inputs=2:duration=first:dropout_transition=0[aout]", "-map", "0:v:0", "-map", "[aout]");
+  else args.push("-map", "0:v:0", "-map", input.nativeAudio ? "0:a:0" : `${audioInputs ? 1 : 1}:a:0`);
   if (input.captionsFile) args.push("-vf", `ass=${input.captionsFile.replace(/:/g, "\\:").replace(/'/g, "\\'")}`);
   args.push("-t", String(input.duration), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", input.output);
   return args;
