@@ -474,7 +474,7 @@ export default function Home() {
     const response = await fetch("/api/video-jobs?scope=mine").catch(() => undefined);
     const body = await response?.json().catch(() => ({}));
     const jobs = Array.isArray(body?.jobs) ? body.jobs as UserJobView[] : [];
-    setLatestVideoJob(jobs.find((job) => job.status === "queued" || job.status === "submitted"));
+    setLatestVideoJob(jobs.find((job) => job.status === "queued" || job.status === "submitted") ?? jobs[0]);
   }
 
   async function refreshUserJobs() {
