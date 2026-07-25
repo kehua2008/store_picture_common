@@ -15,7 +15,7 @@ import {
   type SuiteId,
   type TaskId
 } from "../src/domain/common/promptMatrix";
-import { buildFallbackVideoCreativePlan, scriptFromVideoCreativePlan, type VideoCreativePlan } from "../src/domain/video/videoCreativePlan";
+import { buildFallbackVideoCreativePlan, normalizeVideoCreativePlan, scriptFromVideoCreativePlan, type VideoCreativePlan } from "../src/domain/video/videoCreativePlan";
 
 type PortalView = "home" | "choice" | "image" | "video";
 
@@ -2047,7 +2047,17 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
       if (typeof saved.brief === "string") setBrief(saved.brief);
       if (typeof saved.script === "string") setScript(saved.script);
       if (typeof saved.revision === "string") setRevision(saved.revision);
-      if (saved.creativePlan) setCreativePlan(saved.creativePlan);
+      if (saved.creativePlan) {
+        const savedDuration = Math.max(5, Math.min(15, Number(saved.videoDuration === "custom" ? saved.customDuration : saved.videoDuration) || saved.creativePlan.durationSeconds || 5));
+        setCreativePlan(normalizeVideoCreativePlan(saved.creativePlan, {
+          brief: saved.brief,
+          durationSeconds: savedDuration,
+          imageCount: saved.creativePlan.productProfile?.sourceImageCount ?? 1,
+          musicMode: saved.musicMode,
+          voiceoverMode: saved.voiceoverMode,
+          subtitleMode: saved.subtitleMode
+        }));
+      }
     }
     setDraftReady(true);
   }, []);
@@ -2252,11 +2262,12 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
 
         {creativePlan ? (
           <section className="videoCreativePlan">
-            <div><strong>产品事实卡</strong><span>已读取 {creativePlan.productProfile.sourceImageCount} 张商品素材，分镜会按需选择一张视觉锚点，其余素材用于锁定商品真实性。</span></div>
+            <div><strong>产品事实卡</strong><span>已融合 {creativePlan.productProfile.sourceImageCount} 张商品图为同一商品的多视角事实包，所有素材共同约束外观、细节与包装。</span></div>
             <p>{creativePlan.productProfile.identityFacts.join("；")}</p>
             <div className="videoScenePlanList">
               {creativePlan.scenes.map((scene) => <article key={scene.id}>
-                <strong>{scene.startSeconds}-{scene.endSeconds} 秒 · 素材 {scene.anchorImageIndex + 1}</strong><span>{scene.purpose}</span>
+                <strong>{scene.startSeconds}-{scene.endSeconds} 秒</strong><span>{scene.purpose}</span>
+                <small>本段重点：{scene.requiredProductFacts?.join("、") || "商品整体外观与可确认细节"}</small>
                 <textarea aria-label={`${scene.index + 1} 分镜画面`} value={scene.visualPrompt} onChange={(event) => setCreativePlan((current) => {
                   if (!current) return current;
                   const next = { ...current, scenes: current.scenes.map((item) => item.id === scene.id ? { ...item, visualPrompt: event.target.value } : item) };

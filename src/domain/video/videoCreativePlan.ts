@@ -17,7 +17,12 @@ export type VideoScene = {
   startSeconds: number;
   endSeconds: number;
   purpose: string;
-  anchorImageIndex: number;
+  requiredProductFacts: string[];
+  /**
+   * Only used when the multi-image provider is unavailable. It is deliberately
+   * not part of the user-facing script or scene presentation.
+   */
+  fallbackReferenceIndex?: number;
   visualPrompt: string;
   narration: string;
   caption: string;
@@ -73,10 +78,14 @@ export function buildFallbackVideoCreativePlan(input: VideoPlanInput): VideoCrea
       startSeconds,
       endSeconds,
       purpose,
-      anchorImageIndex: Math.min(index, imageCount - 1),
+      requiredProductFacts: index === 0
+        ? ["商品整体外观", "主色与可见结构"]
+        : last
+          ? ["真实使用场景", "商品整体外观"]
+          : ["可确认的材质、结构或包装细节"],
       visualPrompt: [
         `这是第 ${index + 1} 段（${startSeconds}-${endSeconds} 秒），目标：${purpose}。`,
-        `以第 ${Math.min(index, imageCount - 1) + 1} 张商品素材作为本段视觉锚点。`,
+        "所有已上传图片共同定义同一个真实商品的外观、细节与包装；图片没有先后顺序。",
         identityRule,
         `围绕“${goal}”完成一个完整、单一的镜头动作，画面符合${platform}短视频观看习惯。`,
         index === 0 ? "开场即给商品清晰主视觉，镜头平稳推进，不快速切换多个场景。" : last ? "在真实、克制的生活场景中收束，商品清晰可见并保留干净结尾。" : "用一个稳定的细节扫拍或自然操作展示卖点，避免虚构功能。"
@@ -92,7 +101,7 @@ export function buildFallbackVideoCreativePlan(input: VideoPlanInput): VideoCrea
     productProfile: {
       title: input.category?.trim() || "已上传商品",
       identityFacts: ["以全部已上传商品图作为真实性依据", "商品外观与包装保持一致"],
-      visualFacts: ["素材用于锁定商品身份；每个分镜只选择最合适的一张作为模型锚点"],
+      visualFacts: ["全部商品图共同构成同一商品的多视角事实包，用于锁定外观、细节与包装"],
       forbiddenChanges: [identityRule],
       sourceImageCount: imageCount,
       verified: false
@@ -111,13 +120,12 @@ export function normalizeVideoCreativePlan(candidate: unknown, input: VideoPlanI
   const raw = candidate as Partial<VideoCreativePlan>;
   const scenes = Array.isArray(raw.scenes) ? raw.scenes : [];
   if (scenes.length !== fallback.scenes.length) return fallback;
-  const imageCount = fallback.productProfile.sourceImageCount;
   return {
     ...fallback,
     brief: stringOr(raw.brief, fallback.brief, 2_000),
     callToAction: stringOr(raw.callToAction, fallback.callToAction, 160),
     productProfile: normalizeProfile(raw.productProfile, fallback.productProfile),
-    scenes: fallback.scenes.map((base, index) => normalizeScene(scenes[index], base, imageCount)),
+    scenes: fallback.scenes.map((base, index) => normalizeScene(scenes[index], base, fallback.productProfile.sourceImageCount)),
     audioMode: raw.audioMode === "tts" || raw.audioMode === "none" ? raw.audioMode : fallback.audioMode,
     musicMode: raw.musicMode === "library" || raw.musicMode === "native" || raw.musicMode === "none" ? raw.musicMode : fallback.musicMode,
     captionMode: raw.captionMode === "burned" || raw.captionMode === "none" ? raw.captionMode : fallback.captionMode
@@ -131,6 +139,7 @@ export function scriptFromVideoCreativePlan(plan: VideoCreativePlan): string {
     `真实性限制：${plan.productProfile.forbiddenChanges.join("；")}`,
     ...plan.scenes.map((scene) => [
       `${scene.index + 1}. [${scene.startSeconds}s-${scene.endSeconds}s] ${scene.purpose}`,
+      `本段商品重点：${scene.requiredProductFacts.join("；")}`,
       `画面：${scene.visualPrompt}`,
       `配音：${scene.narration || "无"}`,
       `字幕：${scene.caption || "无"}`
@@ -144,6 +153,8 @@ export function videoScenePrompt(scene: VideoScene, profile: ProductProfile): st
     "电商商品短视频，真实商品保真优先。",
     `商品事实：${[...profile.identityFacts, ...profile.visualFacts].join("；")}`,
     `禁止改写：${profile.forbiddenChanges.join("；")}`,
+    `本段需准确呈现：${scene.requiredProductFacts.join("；")}`,
+    "所有参考图属于同一商品的不同角度与细节，必须综合理解，不按图片顺序切换商品或场景。",
     scene.visualPrompt,
     "不要出现水印、二维码、价格、第三方品牌或无法由素材支持的文字。"
   ].join("\n");
@@ -168,7 +179,8 @@ function normalizeScene(raw: unknown, fallback: VideoScene, imageCount: number):
   return {
     ...fallback,
     purpose: stringOr(candidate.purpose, fallback.purpose, 200),
-    anchorImageIndex: Number.isInteger(candidate.anchorImageIndex) ? Math.max(0, Math.min(imageCount - 1, Number(candidate.anchorImageIndex))) : fallback.anchorImageIndex,
+    requiredProductFacts: stringArray(candidate.requiredProductFacts, fallback.requiredProductFacts),
+    fallbackReferenceIndex: Number.isInteger(candidate.fallbackReferenceIndex) ? Math.max(0, Math.min(imageCount - 1, Number(candidate.fallbackReferenceIndex))) : undefined,
     visualPrompt: stringOr(candidate.visualPrompt, fallback.visualPrompt, 2_500),
     narration: stringOr(candidate.narration, fallback.narration, 160),
     caption: stringOr(candidate.caption, fallback.caption, 100)

@@ -3,7 +3,7 @@ import type { VideoCreativePlan } from "../video/videoCreativePlan";
 
 export const yunwuVideoCapabilities = {
   maxSegmentSeconds: 5,
-  maxVisualReferencesPerSegment: 1,
+  maxVisualReferencesPerSegment: 6,
   supportsNativeAudio: true
 } as const;
 
@@ -12,8 +12,9 @@ export function nativeAudioVideoAvailable(): boolean {
 }
 
 export class YunwuVideoProvider {
+  supportsMultiImage() { return nativeAudioVideoAvailable(); }
   async create(input: { prompt: string; images: string[]; aspectRatio: string; durationSeconds: number; creativePlan?: VideoCreativePlan }): Promise<{ ok: true; task: { id: string; model: string } } | { ok: false; error: VideoError }> {
-    if (input.creativePlan?.musicMode === "native") return this.createNativeAudioVideo(input);
+    if (nativeAudioVideoAvailable()) return this.createArkVideo(input);
     const key = process.env.YUNWU_API_KEY?.trim();
     if (!key) return fail("provider_missing_config", "生视频服务尚未配置，请联系管理员完成模型服务配置。", false);
     if (!input.images.length) return fail("provider_bad_request", "请上传至少一张商品图片。", false);
@@ -37,17 +38,17 @@ export class YunwuVideoProvider {
     const endpoint = pattern.replace("{id}", encodeURIComponent(input.id));
     try { const response = await fetch(`${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`, { headers: { Accept: "application/json", Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(60_000) }); if (!response.ok) return responseFailure(response); const data = await response.json().catch(() => ({})); return { ok: true, status: findStatus(data), outputUrl: findVideoUrl(data) }; } catch (error) { return fail("provider_unknown", safeMessage(error), true); }
   }
-  private async createNativeAudioVideo(input: { prompt: string; images: string[]; aspectRatio: string; durationSeconds: number; creativePlan?: VideoCreativePlan }) {
+  private async createArkVideo(input: { prompt: string; images: string[]; aspectRatio: string; durationSeconds: number; creativePlan?: VideoCreativePlan }) {
     const key = process.env.ARK_VIDEO_API_KEY?.trim();
     const baseUrl = process.env.ARK_VIDEO_BASE_URL?.trim()?.replace(/\/$/, "");
     const model = process.env.ARK_VIDEO_MODEL?.trim();
     const endpoint = process.env.ARK_VIDEO_CREATE_PATH?.trim() || "/api/v3/contents/generations/tasks";
-    if (!key || !baseUrl || !model) return fail("native_audio_provider_not_configured", "自动配乐服务暂未配置，请稍后重试。", false);
+    if (!key || !baseUrl || !model) return fail("provider_missing_config", "生视频服务尚未配置，请稍后重试。", false);
     try {
       const response = await fetch(`${baseUrl}${normalizePath(endpoint)}`, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model, content: [{ type: "text", text: input.prompt }, ...input.images.map((url) => ({ type: "image_url", image_url: { url }, role: "reference_image" }))], generate_audio: true, ratio: input.aspectRatio, duration: input.durationSeconds, watermark: false }),
+        body: JSON.stringify({ model, content: [{ type: "text", text: input.prompt }, ...input.images.map((url) => ({ type: "image_url", image_url: { url }, role: "reference_image" }))], generate_audio: input.creativePlan?.musicMode === "native", ratio: input.aspectRatio, duration: input.durationSeconds, watermark: false }),
         signal: AbortSignal.timeout(120_000)
       });
       if (!response.ok) return responseFailure(response);

@@ -6,6 +6,7 @@ import { rechargeOrderRepository, videoJobService } from "../../../src/server/se
 import { persistentUploadSubdir } from "../../../src/server/storagePaths";
 import { normalizeVideoCreativePlan, videoScenePrompt } from "../../../src/domain/video/videoCreativePlan";
 import { FfmpegVideoComposer, videoCompositionCapabilities } from "../../../src/server/videoComposer";
+import { nativeAudioVideoAvailable } from "../../../src/domain/provider/yunwuVideoProvider";
 
 const maxImageBytes = 8 * 1024 * 1024;
 videoJobService.useComposer(new FfmpegVideoComposer());
@@ -13,7 +14,7 @@ videoJobService.useComposer(new FfmpegVideoComposer());
 export async function GET(request: Request) {
   if (new URL(request.url).searchParams.get("capabilities") === "1") {
     return NextResponse.json({
-      capabilities: { maxSegmentSeconds: 5, maxVisualReferencesPerSegment: 1, supportsNativeAudio: videoCompositionCapabilities().nativeMusicAvailable },
+      capabilities: { maxSegmentSeconds: 5, maxVisualReferencesPerSegment: nativeAudioVideoAvailable() ? 6 : 1, supportsNativeAudio: videoCompositionCapabilities().nativeMusicAvailable },
       composition: videoCompositionCapabilities()
     });
   }
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
   const auth = await getAuthContextFromRequest(request);
   if (!auth) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
   if (auth.user.status !== "active") return NextResponse.json({ error: "account_suspended" }, { status: 403 });
-  if (!process.env.YUNWU_API_KEY?.trim()) return NextResponse.json({ error: "video_provider_not_configured", message: "生视频服务暂未配置，请稍后重试或联系管理员。" }, { status: 503 });
+  if (!process.env.YUNWU_API_KEY?.trim() && !nativeAudioVideoAvailable()) return NextResponse.json({ error: "video_provider_not_configured", message: "生视频服务暂未配置，请稍后重试或联系管理员。" }, { status: 503 });
   const form = await request.formData().catch(() => undefined);
   if (!form) return NextResponse.json({ error: "invalid_multipart_request" }, { status: 400 });
   const images = form.getAll("images").filter(isImageFile);
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
     outputResolution: formText(form, "outputResolution") === "720p" ? "720p" : "480p",
     reservedCredits,
     creativePlan,
-    scenes: creativePlan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, creativePlan.productProfile), anchorImageIndex: scene.anchorImageIndex, status: "queued" }))
+    scenes: creativePlan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, creativePlan.productProfile), fallbackReferenceIndex: scene.fallbackReferenceIndex, status: "queued" }))
   });
   try {
     await rechargeOrderRepository.reserveGenerationCredits({ customerId: auth.user.id, generationJobId: job.id, credits: reservedCredits, actorId: auth.actor.actorId, actorName: auth.actor.actorName, reason: "创建视频任务冻结预计积分" });

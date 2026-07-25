@@ -12,7 +12,7 @@ export type VideoSceneJob = {
   sceneId: string;
   index: number;
   prompt: string;
-  anchorImageIndex: number;
+  fallbackReferenceIndex?: number;
   status: "queued" | "submitted" | "succeeded" | "failed";
   providerTaskId?: string;
   providerModel?: string;
@@ -52,6 +52,7 @@ export interface VideoJob {
 type VideoProvider = {
   create(input: Pick<VideoJob, "prompt" | "images" | "aspectRatio" | "durationSeconds" | "creativePlan">): Promise<{ ok: true; task: { id: string; model: string } } | { ok: false; error: VideoError }>;
   get(input: { id: string; model?: string }): Promise<{ ok: true; status: string; outputUrl?: string } | { ok: false; error: VideoError }>;
+  supportsMultiImage?: () => boolean;
 };
 
 export type VideoComposer = {
@@ -107,7 +108,10 @@ export class VideoJobService {
       const activeScene = scenes.find((scene) => scene.status === "queued" || scene.status === "submitted");
       if (!activeScene) return this.beginComposition(job, scenes);
       if (activeScene.status === "queued") {
-        const created = await this.provider.create({ ...job, prompt: activeScene.prompt, images: [job.images[activeScene.anchorImageIndex] ?? job.images[0]], durationSeconds: 5 });
+        const images = this.provider.supportsMultiImage?.()
+          ? job.images
+          : [job.images[activeScene.fallbackReferenceIndex ?? 0] ?? job.images[0]].filter(Boolean);
+        const created = await this.provider.create({ ...job, prompt: activeScene.prompt, images, durationSeconds: 5 });
         const current = await this.repository.find(id); if (!current || current.status === "canceled") return current;
         if (!created.ok) return this.failOrRetry(current, created.error);
         return this.repository.update(id, (item) => ({ ...item, status: "submitted", pipelineStage: "visual", scenes: markScene(item, activeScene.index, (scene) => ({ ...scene, status: "submitted", providerTaskId: created.task.id, providerModel: created.task.model, submittedAt: new Date().toISOString(), error: undefined })), providerTaskId: created.task.id, providerModel: created.task.model, submittedAt: new Date().toISOString() }));
@@ -170,8 +174,8 @@ export class VideoJobService {
 
 function ensureScenes(job: VideoJob): VideoSceneJob[] {
   if (job.scenes?.length) return job.scenes;
-  const scene: VideoScene = { id: "scene-1", index: 0, startSeconds: 0, endSeconds: job.durationSeconds, purpose: "完成视频生成", anchorImageIndex: 0, visualPrompt: job.prompt, narration: "", caption: "" };
-  return [{ sceneId: scene.id, index: 0, prompt: job.creativePlan ? videoScenePrompt(scene, job.creativePlan.productProfile) : job.prompt, anchorImageIndex: 0, status: job.status === "submitted" ? "submitted" : "queued", providerTaskId: job.providerTaskId, providerModel: job.providerModel, submittedAt: job.submittedAt }];
+  const scene: VideoScene = { id: "scene-1", index: 0, startSeconds: 0, endSeconds: job.durationSeconds, purpose: "完成视频生成", requiredProductFacts: ["商品整体外观与可确认细节"], visualPrompt: job.prompt, narration: "", caption: "" };
+  return [{ sceneId: scene.id, index: 0, prompt: job.creativePlan ? videoScenePrompt(scene, job.creativePlan.productProfile) : job.prompt, status: job.status === "submitted" ? "submitted" : "queued", providerTaskId: job.providerTaskId, providerModel: job.providerModel, submittedAt: job.submittedAt }];
 }
 function markScene(job: VideoJob, index: number, callback: (scene: VideoSceneJob) => VideoSceneJob): VideoSceneJob[] {
   const scenes = ensureScenes(job);

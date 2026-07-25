@@ -56,9 +56,9 @@ export class OpenAICompatibleVideoPromptWriter {
               "Return strict JSON only with keys summary and plan.",
               "Write in Chinese.",
               "The script must be a concrete shot-by-shot prompt for a video-generation model.",
-              "Preserve product facts from the uploaded product images. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
+              "Treat every uploaded image as a multi-angle fact package for ONE same product, not as an ordered storyboard or different products. Preserve facts jointly inferred from all images. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
               "Do not add brands, watermarks, QR codes, prices, certifications, unsupported claims, or nonexistent product features.",
-              "plan must contain productProfile and scenes. Every scene lasts five seconds or less, has one visual action, an anchorImageIndex, narration and caption."
+              "plan must contain productProfile and scenes. Every scene lasts five seconds or less, has one visual action, requiredProductFacts, narration and caption. Never assign images to scenes by upload order or mention image/material numbers. fallbackReferenceIndex is optional internal-only metadata for a single-image outage fallback; if used, choose it only from visual suitability and never mention it in any visible copy."
             ].join(" ")
           },
           { role: "user", content: buildUserContent(input) }
@@ -104,7 +104,8 @@ function buildUserContent(input: VideoPromptWriterInput): Array<Record<string, u
       "Output requirements:",
       "- JSON only: {\"summary\":\"...\",\"plan\":{...}}. You may additionally return script.",
       "- plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges and verified.",
-      "- plan.scenes must contain exactly one 5-second-or-less scene per 5 seconds of duration. Each scene has anchorImageIndex, purpose, visualPrompt, narration and caption.",
+      "- All images show one product from different views. They are a unified fact package, not a sequence and not a requirement to show each one.",
+      "- plan.scenes must contain exactly one 5-second-or-less scene per 5 seconds of duration. Each scene has purpose, requiredProductFacts, visualPrompt, narration and caption. Do not use source image numbers or assign a source image to a scene.",
       "- Keep within selected duration; product remains visible and recognizable.",
       "- Do not invent functions, materials, text, packaging, accessories, people, or a scene unsupported by the product image and brief."
     ].join("\n")

@@ -103,20 +103,40 @@ describe("VideoJobService", () => {
     }
   });
 
-  it("persists each visual scene before composing a multi-scene final video", async () => {
+  it("sends the complete multi-angle fact package to every multi-image scene before composing", async () => {
     const dataDir = path.join(os.tmpdir(), `common-video-${crypto.randomUUID()}`);
-    const submitted: string[] = [];
+    const submitted: string[][] = [];
     const plan = buildFallbackVideoCreativePlan({ durationSeconds: 15, imageCount: 3, brief: "出租车投放视频" });
     try {
       const service = new VideoJobService(new FileVideoJobRepository({ dataDir }), {
+        supportsMultiImage() { return true; },
+        async create(input) { submitted.push(input.images); return { ok: true as const, task: { id: `task-${submitted.length}`, model: "ark" } }; },
+        async get(input) { return { ok: true as const, status: "succeed", outputUrl: `https://example.test/${input.id}.mp4` }; }
+      }, {}, { async compose(job) { return { ok: true as const, url: `https://example.test/${job.id}-final.mp4` }; } });
+      const job = await service.createJob({ customerId: "customer-4", prompt: "video", images: ["one", "two", "three"], aspectRatio: "9:16", durationSeconds: 15, outputResolution: "480p", reservedCredits: 900, creativePlan: plan, scenes: plan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, plan.productProfile), fallbackReferenceIndex: scene.fallbackReferenceIndex, status: "queued" })) });
+      for (let index = 0; index < 7; index += 1) await service.run(job.id);
+      const completed = await service.get(job.id);
+      expect(submitted).toEqual([["one", "two", "three"], ["one", "two", "three"], ["one", "two", "three"]]);
+      expect(completed).toMatchObject({ status: "succeeded", progress: { completed: 3, total: 3 }, result: { url: `https://example.test/${job.id}-final.mp4` } });
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses an internal scene-specific fallback only when multi-image support is unavailable", async () => {
+    const dataDir = path.join(os.tmpdir(), `common-video-${crypto.randomUUID()}`);
+    const submitted: string[] = [];
+    const plan = buildFallbackVideoCreativePlan({ durationSeconds: 15, imageCount: 3, brief: "商品短片" });
+    const scenes = plan.scenes.map((scene, index) => ({ ...scene, fallbackReferenceIndex: [2, 0, 1][index] }));
+    try {
+      const service = new VideoJobService(new FileVideoJobRepository({ dataDir }), {
+        supportsMultiImage() { return false; },
         async create(input) { submitted.push(input.images[0]); return { ok: true as const, task: { id: `task-${submitted.length}`, model: "kling" } }; },
         async get(input) { return { ok: true as const, status: "succeed", outputUrl: `https://example.test/${input.id}.mp4` }; }
       }, {}, { async compose(job) { return { ok: true as const, url: `https://example.test/${job.id}-final.mp4` }; } });
-      const job = await service.createJob({ customerId: "customer-4", prompt: "video", images: ["one", "two", "three"], aspectRatio: "9:16", durationSeconds: 15, outputResolution: "480p", reservedCredits: 900, creativePlan: plan, scenes: plan.scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, plan.productProfile), anchorImageIndex: scene.anchorImageIndex, status: "queued" })) });
+      const job = await service.createJob({ customerId: "customer-fallback", prompt: "video", images: ["front", "detail", "package"], aspectRatio: "9:16", durationSeconds: 15, outputResolution: "480p", reservedCredits: 900, creativePlan: { ...plan, scenes }, scenes: scenes.map((scene) => ({ sceneId: scene.id, index: scene.index, prompt: videoScenePrompt(scene, plan.productProfile), fallbackReferenceIndex: scene.fallbackReferenceIndex, status: "queued" })) });
       for (let index = 0; index < 7; index += 1) await service.run(job.id);
-      const completed = await service.get(job.id);
-      expect(submitted).toEqual(["one", "two", "three"]);
-      expect(completed).toMatchObject({ status: "succeeded", progress: { completed: 3, total: 3 }, result: { url: `https://example.test/${job.id}-final.mp4` } });
+      expect(submitted).toEqual(["package", "front", "detail"]);
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }
