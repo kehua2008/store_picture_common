@@ -7457,3 +7457,38 @@ pre {
     flex-basis: 100%;
   }
 }
+
+/* Keep the account control inside the compact station header flow. */
+.stationHeader .accountButton {
+  position: static;
+  right: auto;
+  top: auto;
+  z-index: auto;
+}
+
+.stationHeader nav {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .stationHeaderActions {
+    gap: 16px;
+  }
+
+  .stationHeader nav {
+    display: grid;
+    flex: 1 1 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+    width: auto;
+  }
+
+  .stationHeader nav button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .stationHeader .accountButton {
+    flex: 0 0 auto;
+  }
+}
