@@ -90,9 +90,9 @@ export class VideoJobService {
   async cancel(id: string) {
     let canceled = false;
     const job = await this.repository.update(id, (current) => {
-      if (current.status !== "queued") return current;
+      if (["succeeded", "failed", "canceled"].includes(current.status)) return current;
       canceled = true;
-      return { ...current, status: "canceled", error: undefined, nextAttemptAt: undefined };
+      return { ...current, status: "canceled", error: undefined, nextAttemptAt: undefined, pipelineStage: undefined };
     });
     if (canceled && job) await this.settlement.onCanceled?.(job);
     return job;
@@ -117,6 +117,7 @@ export class VideoJobService {
       if (!status.ok) return status.error.retryable && !hasTimedOut(job) ? job : this.fail(job, hasTimedOut(job) ? timeoutError() : status.error);
       if (isSuccess(status.status) && status.outputUrl) {
         const completed = await this.repository.update(id, (item) => {
+          if (item.status === "canceled") return item;
           const nextScenes = markScene(item, activeScene.index, (scene) => ({ ...scene, status: "succeeded", resultUrl: status.outputUrl!, error: undefined }));
           const completedCount = nextScenes.filter((scene) => scene.status === "succeeded").length;
           return { ...item, scenes: nextScenes, progress: { completed: completedCount, total: nextScenes.length }, error: undefined };
@@ -131,7 +132,8 @@ export class VideoJobService {
   }
   private async beginComposition(job: VideoJob, scenes: VideoSceneJob[]) {
     if (scenes.some((scene) => scene.status !== "succeeded" || !scene.resultUrl)) return this.fail(job, { code: "scene_incomplete", message: "视频分镜未完成，无法进入合成。", retryable: false });
-    const composing = await this.repository.update(job.id, (item) => ({ ...item, status: "composing", pipelineStage: "audio", chargedCredits: item.reservedCredits, nextAttemptAt: undefined }));
+    const composing = await this.repository.update(job.id, (item) => item.status === "canceled" ? item : ({ ...item, status: "composing", pipelineStage: "audio", chargedCredits: item.reservedCredits, nextAttemptAt: undefined }));
+    if (composing?.status === "canceled") return composing;
     if (composing) await this.settlement.onSubmitted?.(composing);
     return composing && !this.composer ? this.compose(composing) : composing;
   }
@@ -151,7 +153,7 @@ export class VideoJobService {
     return this.fail(job, composed.error);
   }
   private async succeed(job: VideoJob, url: string) {
-    const succeeded = await this.repository.update(job.id, (item) => ({ ...item, status: "succeeded", pipelineStage: "compose", progress: { completed: item.scenes?.length ?? 1, total: item.scenes?.length ?? 1 }, result: { url, createdAt: new Date().toISOString() }, error: undefined, nextAttemptAt: undefined }));
+    const succeeded = await this.repository.update(job.id, (item) => item.status === "canceled" ? item : ({ ...item, status: "succeeded", pipelineStage: "compose", progress: { completed: item.scenes?.length ?? 1, total: item.scenes?.length ?? 1 }, result: { url, createdAt: new Date().toISOString() }, error: undefined, nextAttemptAt: undefined }));
     if (succeeded) await this.settlement.onSucceeded?.(succeeded);
     return succeeded;
   }

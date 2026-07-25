@@ -87,6 +87,69 @@ type VideoCompositionCapabilitiesView = {
   musicLibraryAvailable: boolean;
 };
 
+type VideoDraftFileRecord = { id: string; name: string; size: number; type: string; lastModified: number; file: Blob };
+type CustomVideoDraft = {
+  videoSpec: (typeof videoSpecOptions)[number]["id"];
+  musicMode: string;
+  voiceoverMode: string;
+  subtitleMode: string;
+  videoQuality: "480p" | "720p";
+  videoDuration: (typeof videoDurationOptions)[number]["id"];
+  customDuration: string;
+  brief: string;
+  script: string;
+  revision: string;
+  creativePlan?: VideoCreativePlan;
+};
+
+const videoDraftKey = "common-video-workbench-draft-v1";
+const videoShellDraftKey = "common-video-workbench-shell-v1";
+const videoDraftDatabaseName = "common-video-workbench";
+const videoDraftStoreName = "files";
+
+function loadLocalDraft<T>(key: string): T | undefined {
+  if (typeof window === "undefined") return undefined;
+  try { return JSON.parse(window.localStorage.getItem(key) ?? "") as T; } catch { return undefined; }
+}
+function saveLocalDraft(key: string, value: unknown) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Browser storage is optional; the active workbench remains usable. */ }
+}
+function openVideoDraftDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(videoDraftDatabaseName, 1);
+    request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains(videoDraftStoreName)) request.result.createObjectStore(videoDraftStoreName, { keyPath: "id" }); };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function saveVideoDraftFiles(files: UploadedFile[]) {
+  if (typeof window === "undefined" || !window.indexedDB) return;
+  const database = await openVideoDraftDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(videoDraftStoreName, "readwrite");
+    const store = transaction.objectStore(videoDraftStoreName);
+    store.clear();
+    files.forEach((item) => store.put({ id: item.id, name: item.name, size: item.size, type: item.file.type, lastModified: item.file.lastModified, file: item.file } satisfies VideoDraftFileRecord));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  database.close();
+}
+async function loadVideoDraftFiles(): Promise<UploadedFile[]> {
+  if (typeof window === "undefined" || !window.indexedDB) return [];
+  const database = await openVideoDraftDatabase();
+  const records = await new Promise<VideoDraftFileRecord[]>((resolve, reject) => {
+    const request = database.transaction(videoDraftStoreName, "readonly").objectStore(videoDraftStoreName).getAll();
+    request.onsuccess = () => resolve(request.result as VideoDraftFileRecord[]);
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+  return records.map((record) => {
+    const file = new File([record.file], record.name, { type: record.type, lastModified: record.lastModified });
+    return { id: record.id, name: record.name, size: record.size, file, previewUrl: URL.createObjectURL(file) };
+  });
+}
+
 type OptimizedAsset = {
   avif: string;
   webp: string;
@@ -384,6 +447,8 @@ export default function Home() {
   const [view, setView] = useState<PortalView>("home");
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [videoFiles, setVideoFiles] = useState<UploadedFile[]>([]);
+  const [videoDraftFilesReady, setVideoDraftFilesReady] = useState(false);
+  const [videoShellDraftReady, setVideoShellDraftReady] = useState(false);
   const [dragTarget, setDragTarget] = useState<"image" | "video" | undefined>();
 
   const [activeTask, setActiveTask] = useState<TaskId>(defaultTask);
@@ -432,6 +497,29 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const saved = loadLocalDraft<{ view?: PortalView; videoGoal?: VideoGoalId; videoPlatform?: VideoPlatformId; videoRhythm?: VideoRhythmId; videoCreationMode?: VideoCreationMode; videoNote?: string }>(videoShellDraftKey);
+    if (saved?.view === "video") setView("video");
+    if (saved?.videoGoal) setVideoGoal(saved.videoGoal);
+    if (saved?.videoPlatform) setVideoPlatform(saved.videoPlatform);
+    if (saved?.videoRhythm) setVideoRhythm(saved.videoRhythm);
+    if (saved?.videoCreationMode) setVideoCreationMode(saved.videoCreationMode);
+    if (typeof saved?.videoNote === "string") setVideoNote(saved.videoNote);
+    setVideoShellDraftReady(true);
+    let active = true;
+    void loadVideoDraftFiles().then((files) => { if (active) setVideoFiles((current) => current.length ? current : files); }).catch(() => undefined).finally(() => { if (active) setVideoDraftFilesReady(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (videoShellDraftReady) saveLocalDraft(videoShellDraftKey, { view, videoGoal, videoPlatform, videoRhythm, videoCreationMode, videoNote });
+  }, [view, videoCreationMode, videoGoal, videoNote, videoPlatform, videoRhythm, videoShellDraftReady]);
+
+  useEffect(() => {
+    if (!videoDraftFilesReady) return;
+    void saveVideoDraftFiles(videoFiles).catch(() => undefined);
+  }, [videoDraftFilesReady, videoFiles]);
+
+  useEffect(() => {
     if (!latestImageJob || !["queued", "running"].includes(latestImageJob.status ?? "")) return;
     const timer = window.setInterval(async () => {
       const response = await fetch("/api/generation-jobs").catch(() => undefined);
@@ -457,7 +545,6 @@ export default function Home() {
 
   function enterVideoChoice() {
     setView("video");
-    setVideoCreationMode("choose");
   }
 
   function openUserPanel() {
@@ -618,16 +705,16 @@ export default function Home() {
   }
 
   async function cancelVideoJob() {
-    if (!latestVideoJob?.id || latestVideoJob.status !== "queued") return;
-    setVideoCopyStatus("正在取消等待中的视频任务...");
+    if (!latestVideoJob?.id || ["succeeded", "failed", "canceled"].includes(latestVideoJob.status ?? "")) return;
+    setVideoCopyStatus("正在取消视频任务...");
     const response = await fetch(`/api/video-jobs/${latestVideoJob.id}`, { method: "DELETE" }).catch(() => undefined);
     const body = await response?.json().catch(() => ({}));
     if (!response?.ok) {
-      setVideoCopyStatus(`取消失败：${body?.message ?? "任务已进入模型生成或暂时无法取消"}`);
+      setVideoCopyStatus(`取消失败：${body?.message ?? "任务暂时无法取消"}`);
       return;
     }
     setLatestVideoJob(body.job);
-    setVideoCopyStatus("已取消等待中的视频任务，冻结积分已释放。");
+    setVideoCopyStatus("已取消视频任务，未完成的后续步骤不会继续执行；相应冻结或已扣积分会按任务状态处理。");
     void refreshUserJobs();
   }
 
@@ -1908,6 +1995,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
   const [submitting, setSubmitting] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [compositionCapabilities, setCompositionCapabilities] = useState<VideoCompositionCapabilitiesView>();
+  const [draftReady, setDraftReady] = useState(false);
   const category = categories.find((item) => item.id === input.category) ?? categories[0];
   const goal = videoGoals.find((item) => item.id === input.videoGoal) ?? videoGoals[0];
   const platform = videoPlatforms.find((item) => item.id === input.videoPlatform) ?? videoPlatforms[0];
@@ -1917,6 +2005,30 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
   const taskIsWaiting = input.latestJob?.status === "queued";
   const taskIsRunning = input.latestJob?.status === "submitted" || input.latestJob?.status === "composing";
   const taskIsActive = taskIsWaiting || taskIsRunning;
+  const taskCanCancel = taskIsActive;
+
+  useEffect(() => {
+    const saved = loadLocalDraft<CustomVideoDraft>(videoDraftKey);
+    if (saved) {
+      if (saved.videoSpec) setVideoSpec(saved.videoSpec);
+      if (saved.musicMode) setMusicMode(saved.musicMode);
+      if (saved.voiceoverMode) setVoiceoverMode(saved.voiceoverMode);
+      if (saved.subtitleMode) setSubtitleMode(saved.subtitleMode);
+      if (saved.videoQuality) setVideoQuality(saved.videoQuality);
+      if (saved.videoDuration) setVideoDuration(saved.videoDuration);
+      if (typeof saved.customDuration === "string") setCustomDuration(saved.customDuration);
+      if (typeof saved.brief === "string") setBrief(saved.brief);
+      if (typeof saved.script === "string") setScript(saved.script);
+      if (typeof saved.revision === "string") setRevision(saved.revision);
+      if (saved.creativePlan) setCreativePlan(saved.creativePlan);
+    }
+    setDraftReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    saveLocalDraft(videoDraftKey, { videoSpec, musicMode, voiceoverMode, subtitleMode, videoQuality, videoDuration, customDuration, brief, script, revision, creativePlan } satisfies CustomVideoDraft);
+  }, [brief, creativePlan, customDuration, draftReady, musicMode, revision, script, subtitleMode, videoDuration, videoQuality, videoSpec, voiceoverMode]);
 
   useEffect(() => {
     void fetch("/api/video-jobs?capabilities=1").then((response) => response.ok ? response.json() : undefined).then((body) => {
@@ -2156,7 +2268,7 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
             <button className="generateButton" disabled={!script.trim() || submitting || taskIsActive} type="button" onClick={() => void submitVideo()}>
               {submitting ? "正在提交视频任务..." : taskIsActive ? taskIsWaiting ? "视频任务等待中..." : "分镜或合成进行中..." : "按脚本生成视频"}
             </button>
-            {taskIsWaiting ? (
+            {taskCanCancel ? (
               <button className="cancelVideoButton" disabled={canceling} type="button" onClick={() => void cancelVideo()}>{canceling ? "正在取消..." : "取消生成"}</button>
             ) : null}
           </div>

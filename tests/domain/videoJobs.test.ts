@@ -83,6 +83,26 @@ describe("VideoJobService", () => {
     }
   });
 
+  it("allows a submitted task to be canceled and prevents a late provider result from reviving it", async () => {
+    const dataDir = path.join(os.tmpdir(), `common-video-${crypto.randomUUID()}`);
+    const canceled: string[] = [];
+    try {
+      const service = new VideoJobService(new FileVideoJobRepository({ dataDir }), {
+        async create() { return { ok: true as const, task: { id: "provider-task-cancel", model: "kling" } }; },
+        async get() { return { ok: true as const, status: "succeed", outputUrl: "https://example.test/video.mp4" }; }
+      }, { async onCanceled(job) { canceled.push(job.id); } });
+      const job = await service.createJob({ customerId: "customer-cancel", prompt: "video", images: ["https://example.test/source.png"], aspectRatio: "9:16", durationSeconds: 5, outputResolution: "480p", reservedCredits: 300 });
+      await service.run(job.id);
+      const stopped = await service.cancel(job.id);
+      const afterLateProviderResult = await service.run(job.id);
+      expect(stopped?.status).toBe("canceled");
+      expect(afterLateProviderResult?.status).toBe("canceled");
+      expect(canceled).toEqual([job.id]);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("persists each visual scene before composing a multi-scene final video", async () => {
     const dataDir = path.join(os.tmpdir(), `common-video-${crypto.randomUUID()}`);
     const submitted: string[] = [];
