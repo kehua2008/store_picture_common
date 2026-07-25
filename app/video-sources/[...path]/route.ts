@@ -7,7 +7,10 @@ const contentTypes: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".png": "image/png",
-  ".webp": "image/webp"
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm"
 };
 
 export async function GET(_request: Request, context: { params: Promise<{ path: string[] }> }) {
