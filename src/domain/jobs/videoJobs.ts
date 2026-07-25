@@ -62,7 +62,16 @@ export class VideoJobService {
   createJob(input: Omit<VideoJob, "id" | "createdAt" | "updatedAt" | "status" | "progress" | "chargedCredits">) { return this.repository.create(input); }
   list(customerId: string) { return this.repository.allForCustomer(customerId); }
   get(id: string) { return this.repository.find(id); }
-  async cancel(id: string) { const job = await this.repository.update(id, (current) => ["succeeded", "failed", "canceled"].includes(current.status) ? current : { ...current, status: "canceled" }); if (job?.status === "canceled") await this.settlement.onCanceled?.(job); return job; }
+  async cancel(id: string) {
+    let canceled = false;
+    const job = await this.repository.update(id, (current) => {
+      if (current.status !== "queued") return current;
+      canceled = true;
+      return { ...current, status: "canceled", error: undefined, nextAttemptAt: undefined };
+    });
+    if (canceled && job) await this.settlement.onCanceled?.(job);
+    return job;
+  }
   async runDueJobs(): Promise<void> { for (const job of await this.repository.all()) { const nextAttempt = job.nextAttemptAt ? new Date(job.nextAttemptAt).getTime() : 0; if (["queued", "submitted"].includes(job.status) && !this.active.has(job.id) && (!nextAttempt || nextAttempt <= Date.now())) { await this.run(job.id); return; } } }
   async run(id: string): Promise<VideoJob | undefined> {
     if (this.active.has(id)) return this.get(id); this.active.add(id);

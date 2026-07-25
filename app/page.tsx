@@ -576,6 +576,21 @@ export default function Home() {
     }
     setLatestVideoJob(body.job);
     setVideoCopyStatus("生视频任务已提交，右侧会自动更新进度");
+    void refreshUserJobs();
+  }
+
+  async function cancelVideoJob() {
+    if (!latestVideoJob?.id || latestVideoJob.status !== "queued") return;
+    setVideoCopyStatus("正在取消等待中的视频任务...");
+    const response = await fetch(`/api/video-jobs/${latestVideoJob.id}`, { method: "DELETE" }).catch(() => undefined);
+    const body = await response?.json().catch(() => ({}));
+    if (!response?.ok) {
+      setVideoCopyStatus(`取消失败：${body?.message ?? "任务已进入模型生成或暂时无法取消"}`);
+      return;
+    }
+    setLatestVideoJob(body.job);
+    setVideoCopyStatus("已取消等待中的视频任务，冻结积分已释放。");
+    void refreshUserJobs();
   }
 
   async function logout() {
@@ -843,6 +858,7 @@ export default function Home() {
           copyStatus={videoCopyStatus}
           copyPrompt={() => copyText(videoPrompt.body, setVideoCopyStatus)}
           createVideoJob={createVideoJob}
+          cancelVideoJob={cancelVideoJob}
           latestJob={latestVideoJob}
         />
       )}
@@ -1467,7 +1483,8 @@ type VideoWorkbenchInput = {
   prompt: { summary: string; body: string };
   copyStatus: string;
   copyPrompt: () => void;
-  createVideoJob: (settings: VideoGenerationSettings) => void;
+  createVideoJob: (settings: VideoGenerationSettings) => Promise<void>;
+  cancelVideoJob: () => Promise<void>;
   latestJob?: UserJobView;
 };
 
@@ -1854,12 +1871,17 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
   const [revision, setRevision] = useState("");
   const [status, setStatus] = useState("");
   const [writingMode, setWritingMode] = useState<"draft" | "revise" | "">("");
+  const [submitting, setSubmitting] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const category = categories.find((item) => item.id === input.category) ?? categories[0];
   const goal = videoGoals.find((item) => item.id === input.videoGoal) ?? videoGoals[0];
   const platform = videoPlatforms.find((item) => item.id === input.videoPlatform) ?? videoPlatforms[0];
   const spec = videoSpecOptions.find((item) => item.id === videoSpec) ?? videoSpecOptions[0];
   const durationSeconds = Math.max(1, Math.min(15, Number(videoDuration === "custom" ? customDuration : videoDuration) || 5));
   const durationLabel = `${durationSeconds}秒`;
+  const taskIsWaiting = input.latestJob?.status === "queued";
+  const taskIsRunning = input.latestJob?.status === "submitted";
+  const taskIsActive = taskIsWaiting || taskIsRunning;
 
   async function writeScript(mode: "draft" | "revise") {
     if (!input.files.some((file) => file.file.type.startsWith("image/"))) {
@@ -1898,17 +1920,31 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
     }
   }
 
-  function submitVideo() {
+  async function submitVideo() {
     if (!script.trim()) {
       setStatus("请先生成并确认视频提示词，再提交视频任务。");
       return;
     }
-    input.createVideoJob({
-      prompt: script.trim(),
-      aspectRatio: aspectRatioForVideoSpec(videoSpec),
-      durationSeconds,
-      outputResolution: videoQuality
-    });
+    setSubmitting(true);
+    try {
+      await input.createVideoJob({
+        prompt: script.trim(),
+        aspectRatio: aspectRatioForVideoSpec(videoSpec),
+        durationSeconds,
+        outputResolution: videoQuality
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function cancelVideo() {
+    setCanceling(true);
+    try {
+      await input.cancelVideoJob();
+    } finally {
+      setCanceling(false);
+    }
   }
 
   return (
@@ -2032,7 +2068,15 @@ function CustomVideoWorkbench(input: VideoWorkbenchInput) {
         </div>
 
         <div className="actionRow customVideoSubmitRow">
-          <button className="generateButton" disabled={!script.trim()} type="button" onClick={submitVideo}>按文案生成视频</button>
+          <div className="actionButtons">
+            <button className="generateButton" disabled={!script.trim() || submitting || taskIsActive} type="button" onClick={() => void submitVideo()}>
+              {submitting ? "正在提交视频任务..." : taskIsActive ? taskIsWaiting ? "视频任务等待中..." : "视频模型生成中..." : "按文案生成视频"}
+            </button>
+            {taskIsWaiting ? (
+              <button className="cancelVideoButton" disabled={canceling} type="button" onClick={() => void cancelVideo()}>{canceling ? "正在取消..." : "取消生成"}</button>
+            ) : null}
+          </div>
+          <span>{input.copyStatus}</span>
         </div>
       </main>
 
@@ -2082,7 +2126,7 @@ function ResultRail(input: {
   const progress = input.job?.progress;
   const resultCount = input.job?.results?.length ?? 0;
   const progressText = progress ? `${progress.completed ?? 0}/${progress.total ?? 0}` : "0/0";
-  const stateText = input.job?.status === "succeeded" ? "已完成" : input.job?.status === "partial_failed" ? "部分完成" : input.job?.status === "failed" ? "生成失败" : input.job?.status === "queued" ? "等待队列" : input.job?.status === "running" ? "正在生成" : input.modeLabel;
+  const stateText = input.job?.status === "succeeded" ? "已完成" : input.job?.status === "partial_failed" ? "部分完成" : input.job?.status === "failed" ? "生成失败" : input.job?.status === "canceled" ? "已取消" : input.job?.status === "queued" ? "等待队列" : input.job?.status === "running" || input.job?.status === "submitted" ? "正在生成" : input.modeLabel;
   const firstResult = input.job?.results?.[0];
   const videoUrl = input.job?.result?.url;
   return (

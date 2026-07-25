@@ -4116,7 +4116,33 @@ pre {
 }
 
 .customVideoSubmitRow {
+  flex-direction: column;
   justify-content: center;
+}
+
+.customVideoSubmitRow .actionButtons {
+  justify-content: center;
+  width: auto;
+}
+
+.customVideoSubmitRow > span {
+  text-align: center;
+}
+
+.cancelVideoButton {
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(208, 74, 89, 0.42);
+  border-radius: 999px;
+  color: #ba3650;
+  font-size: 14px;
+  font-weight: 950;
+  min-height: 46px;
+  padding: 0 20px;
+}
+
+.cancelVideoButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 @media (max-width: 1180px) {
