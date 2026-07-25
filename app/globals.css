@@ -4030,6 +4030,95 @@ pre {
   padding: 0 18px;
 }
 
+.customVideoStage {
+  align-items: center;
+}
+
+.customVideoStage .videoPageHeading,
+.customVideoStage .videoModeSwitchButton {
+  justify-self: center;
+}
+
+.videoPromptBox {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(237, 248, 255, 0.9)),
+    rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(47, 128, 237, 0.2);
+  border-radius: 22px;
+  box-shadow: 0 18px 44px rgba(16, 32, 48, 0.06);
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  width: 100%;
+}
+
+.videoPromptBox > strong,
+.videoPromptBox > span {
+  color: #083b7a;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.videoPromptBox textarea {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(47, 128, 237, 0.2);
+  border-radius: 14px;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+  min-height: 96px;
+  outline: none;
+  padding: 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+.videoPromptBox textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(15, 124, 255, 0.13);
+}
+
+.videoPromptBoxTitleCentered {
+  text-align: center;
+}
+
+.customScriptActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.customScriptActions span {
+  color: var(--muted);
+  flex: 1 1 260px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.customScriptEditor textarea {
+  min-height: 260px;
+}
+
+.videoRevisionRow {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+}
+
+.videoRevisionRow .downloadVideoButton {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.customVideoSubmitRow {
+  justify-content: center;
+}
+
 @media (max-width: 1180px) {
   .stationHeader {
     gap: 10px 14px;
@@ -4660,6 +4749,14 @@ pre {
 }
 
 @media (max-width: 900px) {
+  .videoRevisionRow {
+    grid-template-columns: 1fr;
+  }
+
+  .videoRevisionRow .downloadVideoButton {
+    justify-self: center;
+  }
+
   .videoUpscalePage {
     padding: 82px 12px 14px;
   }

@@ -268,6 +268,71 @@ function fileToUpload(file: File): UploadedFile {
   };
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function aspectRatioForVideoSpec(spec: (typeof videoSpecOptions)[number]["id"]): string {
+  if (spec === "vertical") return "9:16";
+  if (spec === "portrait_4_5") return "4:5";
+  if (spec === "ecommerce_3_4") return "3:4";
+  if (spec === "square") return "1:1";
+  return "16:9";
+}
+
+function buildCustomCommonVideoScript(input: {
+  brief: string;
+  categoryLabel: string;
+  videoGoalLabel: string;
+  platformLabel: string;
+  videoSpec: string;
+  duration: string;
+  musicMode: string;
+  voiceoverMode: string;
+  subtitleMode: string;
+}) {
+  const brief = input.brief.trim() || "生成一条画面干净、商品清楚、适合电商投放的原创百货短视频。";
+  return [
+    `视频目标：${brief}`,
+    `商品规则：以已上传的${input.categoryLabel}商品图为唯一事实依据，严格保持商品外形、颜色、材质、包装、尺寸比例、标签位置和可见细节，不添加不存在的配件、功能、品牌、认证或文字。`,
+    `投放设置：${input.platformLabel}，${input.videoGoalLabel}，${input.videoSpec}，时长${input.duration}。`,
+    `声音与字幕：背景音乐${input.musicMode}；配音${input.voiceoverMode}；字幕${input.subtitleMode}。`,
+    "分镜计划：1. 开场用干净近景快速识别商品；2. 展示真实使用方式或核心细节，镜头稳定自然；3. 回到商品主视觉，以简洁、无杂物的结尾定格。",
+    "执行限制：不使用第三方视频、人物肖像、平台标识、二维码、水印、价格标签或夸大承诺；商品始终清晰可见，画面适合电商商品展示。"
+  ].join("\n");
+}
+
+async function requestVideoPromptWriter(input: {
+  mode: "draft" | "revise";
+  brief?: string;
+  currentScript?: string;
+  revision?: string;
+  productImages: string[];
+  category: string;
+  videoGoal: string;
+  platform: string;
+  durationSeconds: number;
+  outputResolution: "480p" | "720p";
+  musicMode: string;
+  voiceoverMode: string;
+  subtitleMode: string;
+}) {
+  const response = await fetch("/api/video-prompt-writer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof body?.message === "string" ? body.message : "AI提示词代写失败，请稍后重试。");
+  if (typeof body?.script !== "string" || !body.script.trim()) throw new Error("AI提示词代写返回内容为空，请稍后重试。");
+  return { script: body.script.trim(), summary: typeof body?.summary === "string" ? body.summary : "" };
+}
+
 function buildVideoPrompt(input: {
   categoryId: CategoryId;
   styleId: StyleId;
@@ -1378,7 +1443,7 @@ function ImageWorkbench(input: {
   );
 }
 
-function VideoWorkbench(input: {
+type VideoWorkbenchInput = {
   files: UploadedFile[];
   dragTarget: "image" | "video" | undefined;
   setDragTarget: (target: "image" | "video" | undefined) => void;
@@ -1404,7 +1469,9 @@ function VideoWorkbench(input: {
   copyPrompt: () => void;
   createVideoJob: (settings: VideoGenerationSettings) => void;
   latestJob?: UserJobView;
-}) {
+};
+
+function VideoWorkbench(input: VideoWorkbenchInput) {
   const [videoSpec, setVideoSpec] = useState<(typeof videoSpecOptions)[number]["id"]>("vertical");
   const [referenceMode, setReferenceMode] = useState<(typeof referenceModeOptions)[number]["id"]>("medium");
   const [selectedGoals, setSelectedGoals] = useState<string[]>(["换成我的商品", "保留节奏，重写文案"]);
@@ -1494,6 +1561,10 @@ function VideoWorkbench(input: {
         </div>
       </main>
     );
+  }
+
+  if (input.videoCreationMode === "prompt") {
+    return <CustomVideoWorkbench {...input} />;
   }
 
   const currentCategory = categories.find((item) => item.id === input.category) ?? categories[0];
@@ -1755,31 +1826,6 @@ function VideoWorkbench(input: {
           <span>{input.videoCreationMode === "reference" ? input.copyStatus : (promptDialogOpen ? "提示词已生成，可继续提交补充意见" : "生成后会在下方对话框中展示提示词")}</span>
         </div>
 
-        {input.videoCreationMode === "prompt" && promptDialogOpen ? (
-          <section className="promptDialogPanel" role="dialog" aria-label="生成的视频提示词">
-            <header>
-              <strong>生成的视频提示词</strong>
-              <button type="button" onClick={() => setPromptDialogOpen(false)}>关闭</button>
-            </header>
-            <textarea
-              className="generatedPromptText"
-              value={generatedVideoPrompt}
-              onChange={(event) => setGeneratedVideoPrompt(event.target.value)}
-            />
-            <label className="promptRevisionField">
-              <span>补充意见</span>
-              <textarea
-                value={promptRevision}
-                onChange={(event) => setPromptRevision(event.target.value)}
-                placeholder="例如：开头节奏更慢一点，增加材质细节特写，结尾保留干净商品美镜。"
-              />
-            </label>
-            <div className="promptDialogActions">
-              <button type="button" onClick={submitPromptRevision}>提交修改提示词</button>
-              <button type="button" onClick={() => void navigator.clipboard.writeText(generatedVideoPrompt)}>复制当前提示词</button>
-            </div>
-          </section>
-        ) : null}
       </main>
 
       <ResultRail
@@ -1789,6 +1835,214 @@ function VideoWorkbench(input: {
         subline={`${currentSpec.spec} · ${videoQuality.toUpperCase()} · ${currentDuration}`}
         body={input.prompt.body}
         emptyText="任务提交后会显示真实视频状态与结果链接。"
+        job={input.latestJob}
+      />
+    </>
+  );
+}
+
+function CustomVideoWorkbench(input: VideoWorkbenchInput) {
+  const [videoSpec, setVideoSpec] = useState<(typeof videoSpecOptions)[number]["id"]>("vertical");
+  const [musicMode, setMusicMode] = useState(musicModeOptions[0]);
+  const [voiceoverMode, setVoiceoverMode] = useState(voiceoverModeOptions[0]);
+  const [subtitleMode, setSubtitleMode] = useState(subtitleModeOptions[1]);
+  const [videoQuality, setVideoQuality] = useState<(typeof directVideoQualities)[number]["id"]>("480p");
+  const [videoDuration, setVideoDuration] = useState<(typeof videoDurationOptions)[number]["id"]>("5");
+  const [customDuration, setCustomDuration] = useState("5");
+  const [brief, setBrief] = useState("");
+  const [script, setScript] = useState("");
+  const [revision, setRevision] = useState("");
+  const [status, setStatus] = useState("");
+  const [writingMode, setWritingMode] = useState<"draft" | "revise" | "">("");
+  const category = categories.find((item) => item.id === input.category) ?? categories[0];
+  const goal = videoGoals.find((item) => item.id === input.videoGoal) ?? videoGoals[0];
+  const platform = videoPlatforms.find((item) => item.id === input.videoPlatform) ?? videoPlatforms[0];
+  const spec = videoSpecOptions.find((item) => item.id === videoSpec) ?? videoSpecOptions[0];
+  const durationSeconds = Math.max(1, Math.min(15, Number(videoDuration === "custom" ? customDuration : videoDuration) || 5));
+  const durationLabel = `${durationSeconds}秒`;
+
+  async function writeScript(mode: "draft" | "revise") {
+    if (!input.files.some((file) => file.file.type.startsWith("image/"))) {
+      setStatus("请先上传至少一张商品图片。");
+      return;
+    }
+    if (mode === "revise" && !revision.trim()) return;
+    setWritingMode(mode);
+    setStatus(mode === "draft" ? "AI正在读取商品图并代写提示词..." : "AI正在按补充意见重写提示词...");
+    try {
+      const productImages = await Promise.all(
+        input.files.filter((file) => file.file.type.startsWith("image/")).slice(0, 3).map((file) => fileToDataUrl(file.file))
+      );
+      const result = await requestVideoPromptWriter({
+        mode,
+        brief,
+        currentScript: mode === "revise" ? script : undefined,
+        revision: mode === "revise" ? revision : undefined,
+        productImages: productImages.filter(Boolean),
+        category: category.label,
+        videoGoal: goal.label,
+        platform: platform.label,
+        durationSeconds,
+        outputResolution: videoQuality,
+        musicMode,
+        voiceoverMode,
+        subtitleMode
+      });
+      setScript(result.script);
+      if (mode === "revise") setRevision("");
+      setStatus(result.summary || (mode === "draft" ? "AI已生成视频提示词，可继续修改。" : "AI已按补充意见重写视频提示词。"));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "AI提示词代写失败，请稍后重试。");
+    } finally {
+      setWritingMode("");
+    }
+  }
+
+  function submitVideo() {
+    if (!script.trim()) {
+      setStatus("请先生成并确认视频提示词，再提交视频任务。");
+      return;
+    }
+    input.createVideoJob({
+      prompt: script.trim(),
+      aspectRatio: aspectRatioForVideoSpec(videoSpec),
+      durationSeconds,
+      outputResolution: videoQuality
+    });
+  }
+
+  return (
+    <>
+      <aside className="controlRail videoControlRail">
+        <section>
+          <StepTitle index="01" title="视频规格" />
+          <div className="videoPlatformGrid">
+            {videoSpecOptions.map((item) => (
+              <button className={videoSpec === item.id ? "active" : ""} key={item.id} type="button" onClick={() => setVideoSpec(item.id)}>
+                <strong>{item.label}</strong>
+                <span>{item.spec}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section>
+          <StepTitle index="02" title="声音" />
+          <div className="videoOptionStack">
+            <span>背景音乐</span>
+            <div className="videoOptionGrid">
+              {musicModeOptions.map((item) => (
+                <button className={musicMode === item ? "active" : ""} key={item} type="button" onClick={() => setMusicMode(item)}>{item}</button>
+              ))}
+            </div>
+            <span>配音</span>
+            <div className="videoOptionGrid">
+              {voiceoverModeOptions.map((item) => (
+                <button className={voiceoverMode === item ? "active" : ""} key={item} type="button" onClick={() => setVoiceoverMode(item)}>{item}</button>
+              ))}
+            </div>
+          </div>
+        </section>
+        <section>
+          <StepTitle index="03" title="字幕" />
+          <div className="videoOptionStack">
+            <div className="videoOptionGrid">
+              {subtitleModeOptions.map((item) => (
+                <button className={subtitleMode === item ? "active" : ""} key={item} type="button" onClick={() => setSubtitleMode(item)}>{item}</button>
+              ))}
+            </div>
+          </div>
+        </section>
+        <section>
+          <StepTitle index="04" title="视频输出" />
+          <div className="videoOutputQuality">
+            <span>视频输出质量</span>
+            <div className="videoQualityGrid">
+              {directVideoQualities.map((item) => (
+                <button className={videoQuality === item.id ? "active" : ""} key={item.id} type="button" onClick={() => setVideoQuality(item.id)}>
+                  <strong>{item.label}</strong><small>{item.desc}</small>
+                </button>
+              ))}
+            </div>
+            <span>视频时长</span>
+            <div className="videoQualityGrid videoDurationGrid">
+              {videoDurationOptions.map((item) => (
+                <button className={videoDuration === item.id ? "active" : ""} key={item.id} type="button" onClick={() => setVideoDuration(item.id)}>
+                  <strong>{item.label}</strong><small>{item.desc}</small>
+                </button>
+              ))}
+            </div>
+            {videoDuration === "custom" ? (
+              <label className="videoDurationCustomInput">自定义秒数
+                <input inputMode="numeric" max={15} min={1} type="number" value={customDuration} onChange={(event) => setCustomDuration(event.target.value)} />
+              </label>
+            ) : null}
+            <em>草稿默认按 480P / 5 秒先生成，确认后再走高清输出。</em>
+          </div>
+        </section>
+      </aside>
+
+      <main className="mainStage videoStage videoSubStage customVideoStage">
+        <h2 className="videoPageHeading">一句话生成视频</h2>
+        <button className="videoModeSwitchButton" type="button" onClick={() => input.setVideoCreationMode("reference")}>切换到参考视频生成</button>
+
+        <section className="videoUploadStack customVideoBuilder">
+          <div className="videoUploadBlock">
+            <strong>上传商品图</strong>
+            <UploadPanel
+              mode="video"
+              files={input.files}
+              dragTarget={input.dragTarget}
+              setDragTarget={input.setDragTarget}
+              handleDrop={input.handleDrop}
+              handleFileInput={input.handleFileInput}
+              onRemove={input.removeFile}
+              title="商品图素材"
+              desc="必填，用商品图锁定外形、颜色、材质、包装和主要卖点。"
+              dropLabel="点击或拖拽上传商品图"
+              dropNote="建议上传白底图、实拍图、包装图和细节图。"
+              accept="image/*"
+            />
+          </div>
+        </section>
+
+        <section className="videoPromptBox videoScriptBox customPromptWriter">
+          <strong>一句话，AI代写生视频提示词</strong>
+          <textarea value={brief} onChange={(event) => setBrief(event.target.value)} placeholder="简单描述想要什么样的视频，例如：厨房台面使用场景，突出容量和材质，适合抖音投放。" rows={3} />
+          <div className="customScriptActions">
+            <button className="generateButton" disabled={!input.files.some((file) => file.file.type.startsWith("image/")) || Boolean(writingMode)} type="button" onClick={() => void writeScript("draft")}>
+              {writingMode === "draft" ? "AI代写中..." : "AI代写提示词"}
+            </button>
+            <span>{status || "上传商品图后，输入一句需求即可生成提示词。"}</span>
+          </div>
+        </section>
+
+        <label className="videoPromptBox videoScriptBox customScriptEditor">
+          <span className="videoPromptBoxTitleCentered">AI生成的提示词</span>
+          <textarea value={script} onChange={(event) => setScript(event.target.value)} placeholder="AI代写后会在这里显示完整的视频提示词，你也可以直接编辑。" rows={10} />
+        </label>
+
+        <div className="videoRevisionRow">
+          <label className="videoPromptBox videoScriptBox">
+            <span className="videoPromptBoxTitleCentered">补充或修改要求</span>
+            <textarea value={revision} onChange={(event) => setRevision(event.target.value)} placeholder="例如：开头节奏更慢一点，增加材质细节特写，结尾保留干净商品美镜。" rows={3} />
+          </label>
+          <button className="downloadVideoButton" disabled={!revision.trim() || !script.trim() || Boolean(writingMode)} type="button" onClick={() => void writeScript("revise")}>
+            {writingMode === "revise" ? "AI改写中..." : "提交修改意见"}
+          </button>
+        </div>
+
+        <div className="actionRow customVideoSubmitRow">
+          <button className="generateButton" disabled={!script.trim()} type="button" onClick={submitVideo}>按文案生成视频</button>
+        </div>
+      </main>
+
+      <ResultRail
+        title="视频生成结果"
+        modeLabel="一句话生成视频"
+        summary={`${goal.label} / ${category.label} / ${platform.label}`}
+        subline={`${spec.spec} · ${videoQuality.toUpperCase()} · ${durationLabel}`}
+        body={script || buildCustomCommonVideoScript({ brief, categoryLabel: category.label, videoGoalLabel: goal.label, platformLabel: platform.label, videoSpec: spec.spec, duration: durationLabel, musicMode, voiceoverMode, subtitleMode })}
+        emptyText="确认提示词后提交任务，生成状态与视频结果会显示在这里。"
         job={input.latestJob}
       />
     </>
