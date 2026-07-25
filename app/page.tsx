@@ -603,7 +603,13 @@ export default function Home() {
     const response = await fetch("/api/video-jobs", { method: "POST", body: form }).catch(() => undefined);
     const body = await response?.json().catch(() => ({}));
     if (!response?.ok) {
-      setVideoCopyStatus(`提交失败：${body?.message ?? authErrorMessage(body?.error)}`);
+      if (body?.error === "insufficient_credits") {
+        const required = typeof body?.requiredCredits === "number" ? body.requiredCredits : undefined;
+        const available = typeof body?.account?.balanceCredits === "number" ? body.account.balanceCredits : undefined;
+        setVideoCopyStatus(`积分不足：本次 ${settings.durationSeconds} 秒视频需 ${required ?? "更多"} 积分，当前可用 ${available ?? 0} 积分。请充值后再提交。`);
+      } else {
+        setVideoCopyStatus(`提交失败：${body?.message ?? authErrorMessage(body?.error)}`);
+      }
       return;
     }
     setLatestVideoJob(body.job);
