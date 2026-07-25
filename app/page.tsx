@@ -15,7 +15,7 @@ import {
   type SuiteId,
   type TaskId
 } from "../src/domain/common/promptMatrix";
-import { buildFallbackVideoCreativePlan, normalizeVideoCreativePlan, scriptFromVideoCreativePlan, type VideoCreativePlan } from "../src/domain/video/videoCreativePlan";
+import { buildFallbackVideoCreativePlan, migrateStoredVideoGoal, normalizeVideoCreativePlan, scriptFromVideoCreativePlan, type VideoCreativePlan } from "../src/domain/video/videoCreativePlan";
 
 type PortalView = "home" | "choice" | "image" | "video";
 
@@ -158,7 +158,7 @@ type OptimizedAsset = {
   sizes: string;
 };
 
-type VideoGoalId = "productReveal" | "handDemo" | "usageScene" | "detailSweep" | "unboxing" | "liveClip";
+type VideoGoalId = "aiSmart" | "productReveal" | "handDemo" | "usageScene" | "detailSweep" | "unboxing" | "liveClip";
 type VideoPlatformId = "douyin" | "xiaohongshu" | "kuaishou" | "wechat" | "marketplace";
 type VideoRhythmId = "steady" | "balanced" | "impact";
 type VideoCreationMode = "choose" | "reference" | "prompt";
@@ -206,6 +206,7 @@ const optimizedAssets = {
 } satisfies Record<string, OptimizedAsset>;
 
 const videoGoals: Array<{ id: VideoGoalId; label: string; desc: string; prompt: string }> = [
+  { id: "aiSmart", label: "AI智能判断", desc: "根据商品决定展示方式", prompt: "first identify the product type, physical scale and credible operation from all images; default to product reveal and detail shots, use hands only when a portable product has a visible action worth demonstrating, and never depict cars, large appliances, furniture or equipment as hand-held" },
   { id: "productReveal", label: "商品亮相", desc: "3秒看清商品", prompt: "start with a clean product reveal, large product in frame, immediate recognition in the first three seconds" },
   { id: "handDemo", label: "手持演示", desc: "拿起、打开、安装、操作", prompt: "show credible hand operation such as holding, opening, placing, installing, switching, pouring or folding, without inventing false features" },
   { id: "usageScene", label: "场景使用", desc: "放进真实生活场景", prompt: "show the product used in a truthful daily-life environment that matches the category and keeps the product readable" },
@@ -402,12 +403,18 @@ function buildCustomCommonVideoScript(input: {
   subtitleMode: string;
 }) {
   const brief = input.brief.trim() || "生成一条画面干净、商品清楚、适合电商投放的原创百货短视频。";
+  const presentationRule = input.videoGoalLabel === "AI智能判断"
+    ? "展示策略：先从商品图识别类别、体量和可操作性；默认商品亮相与细节扫拍，只有便携且操作能证明真实卖点时才加入手部互动。汽车、大家电、家具和大型设备不得使用手持镜头。"
+    : input.videoGoalLabel === "手持演示"
+      ? "展示策略：用户偏好手持或操作演示，但必须符合商品体量；大型商品改用手部尺度、局部控制或真实使用场景，不能伪造成可被拿起。"
+      : "展示策略：镜头必须符合商品实际体量和可操作性；无图片依据时不加入手部互动。";
   return [
     `视频目标：${brief}`,
     `商品规则：以已上传的${input.categoryLabel}商品图为唯一事实依据，严格保持商品外形、颜色、材质、包装、尺寸比例、标签位置和可见细节，不添加不存在的配件、功能、品牌、认证或文字。`,
     `投放设置：${input.platformLabel}，${input.videoGoalLabel}，${input.videoSpec}，时长${input.duration}。`,
+    presentationRule,
     `声音与字幕：背景音乐${input.musicMode}；配音${input.voiceoverMode}；字幕${input.subtitleMode}。`,
-    "分镜计划：1. 开场用干净近景快速识别商品；2. 展示真实使用方式或核心细节，镜头稳定自然；3. 回到商品主视觉，以简洁、无杂物的结尾定格。",
+    "分镜计划：1. 开场用干净近景快速识别商品；2. 展示可确认的核心细节或真实使用场景，镜头稳定自然；3. 回到商品主视觉，以简洁、无杂物的结尾定格。",
     "执行限制：不使用第三方视频、人物肖像、平台标识、二维码、水印、价格标签或夸大承诺；商品始终清晰可见，画面适合电商商品展示。"
   ].join("\n");
 }
@@ -486,7 +493,7 @@ export default function Home() {
   const [merchantNote, setMerchantNote] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
 
-  const [videoGoal, setVideoGoal] = useState<VideoGoalId>("handDemo");
+  const [videoGoal, setVideoGoal] = useState<VideoGoalId>("aiSmart");
   const [videoPlatform, setVideoPlatform] = useState<VideoPlatformId>("douyin");
   const [videoRhythm, setVideoRhythm] = useState<VideoRhythmId>("balanced");
   const [videoCreationMode, setVideoCreationMode] = useState<VideoCreationMode>("choose");
@@ -524,9 +531,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const saved = loadLocalDraft<{ view?: PortalView; videoGoal?: VideoGoalId; videoPlatform?: VideoPlatformId; videoRhythm?: VideoRhythmId; videoCreationMode?: VideoCreationMode; videoNote?: string }>(videoShellDraftKey);
+    const saved = loadLocalDraft<{ version?: number; view?: PortalView; videoGoal?: VideoGoalId; videoPlatform?: VideoPlatformId; videoRhythm?: VideoRhythmId; videoCreationMode?: VideoCreationMode; videoNote?: string }>(videoShellDraftKey);
     if (saved?.view === "video") setView("video");
-    if (saved?.videoGoal) setVideoGoal(saved.videoGoal);
+    const restoredVideoGoal = migrateStoredVideoGoal(saved?.videoGoal, saved?.version);
+    if (restoredVideoGoal) setVideoGoal(restoredVideoGoal as VideoGoalId);
     if (saved?.videoPlatform) setVideoPlatform(saved.videoPlatform);
     if (saved?.videoRhythm) setVideoRhythm(saved.videoRhythm);
     if (saved?.videoCreationMode) setVideoCreationMode(saved.videoCreationMode);
@@ -538,7 +546,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (videoShellDraftReady) saveLocalDraft(videoShellDraftKey, { view, videoGoal, videoPlatform, videoRhythm, videoCreationMode, videoNote });
+    if (videoShellDraftReady) saveLocalDraft(videoShellDraftKey, { version: 2, view, videoGoal, videoPlatform, videoRhythm, videoCreationMode, videoNote });
   }, [view, videoCreationMode, videoGoal, videoNote, videoPlatform, videoRhythm, videoShellDraftReady]);
 
   useEffect(() => {

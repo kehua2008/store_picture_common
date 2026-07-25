@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFallbackVideoCreativePlan, normalizeVideoCreativePlan, scriptFromVideoCreativePlan } from "../../src/domain/video/videoCreativePlan";
+import { buildFallbackVideoCreativePlan, migrateStoredVideoGoal, normalizeVideoCreativePlan, scriptFromVideoCreativePlan, videoScenePrompt } from "../../src/domain/video/videoCreativePlan";
 
 describe("video creative plan", () => {
   it("splits a fifteen second brief into three executable five-second scenes", () => {
@@ -26,5 +26,26 @@ describe("video creative plan", () => {
     const fallback = buildFallbackVideoCreativePlan({ durationSeconds: 5, imageCount: 1 });
     const plan = normalizeVideoCreativePlan({ ...fallback, musicMode: "native" }, { durationSeconds: 5, imageCount: 1 });
     expect(plan.musicMode).toBe("native");
+  });
+
+  it("keeps an auto-detected large product out of false hand-held scenes", () => {
+    const plan = buildFallbackVideoCreativePlan({ durationSeconds: 15, imageCount: 4, category: "汽车服务", videoGoal: "AI智能判断" });
+    const prompt = plan.scenes.map((scene) => videoScenePrompt(scene, plan.productProfile)).join("\n");
+    expect(prompt).not.toContain("手持演示");
+    expect(prompt).not.toContain("拿起商品");
+    expect(prompt).toContain("默认无人物商品亮相与细节扫拍");
+    expect(plan.productProfile.presentation.handInteraction).toBe("avoid");
+  });
+
+  it("keeps a manual hand-demo request conditional on the actual product scale", () => {
+    const plan = buildFallbackVideoCreativePlan({ durationSeconds: 5, imageCount: 1, category: "汽车服务", videoGoal: "手持演示" });
+    expect(plan.scenes[0]?.visualPrompt).toContain("用户明确偏好手持或操作演示");
+    expect(plan.scenes[0]?.visualPrompt).toContain("绝不伪造成可被拿起的物品");
+  });
+
+  it("migrates the legacy default hand-demo draft while preserving explicit modern choices", () => {
+    expect(migrateStoredVideoGoal("handDemo", undefined)).toBe("aiSmart");
+    expect(migrateStoredVideoGoal("handDemo", 2)).toBe("handDemo");
+    expect(migrateStoredVideoGoal("detailSweep", undefined)).toBe("detailSweep");
   });
 });

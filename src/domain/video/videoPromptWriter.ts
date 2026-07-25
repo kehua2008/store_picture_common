@@ -56,9 +56,9 @@ export class OpenAICompatibleVideoPromptWriter {
               "Return strict JSON only with keys summary and plan.",
               "Write in Chinese.",
               "The script must be a concrete shot-by-shot prompt for a video-generation model.",
-              "Treat every uploaded image as a multi-angle fact package for ONE same product, not as an ordered storyboard or different products. Preserve facts jointly inferred from all images. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
+              "Treat every uploaded image as a multi-angle fact package for ONE same product, not as an ordered storyboard or different products. Preserve facts jointly inferred from all images. Before writing scenes, assess the product type, physical scale, whether hand interaction is credible, preferred presentation approaches, and approaches that must be avoided. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
               "Do not add brands, watermarks, QR codes, prices, certifications, unsupported claims, or nonexistent product features.",
-              "plan must contain productProfile and scenes. Every scene lasts five seconds or less, has one visual action, requiredProductFacts, narration and caption. Never assign images to scenes by upload order or mention image/material numbers. fallbackReferenceIndex is optional internal-only metadata for a single-image outage fallback; if used, choose it only from visual suitability and never mention it in any visible copy."
+              "plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges, verified and presentation. presentation contains productType, scale (portable|large|unknown), handInteraction (recommended|conditional|avoid), preferredApproaches and forbiddenApproaches. When video type is AI智能判断, never default to hands: cars, large appliances, furniture and large equipment use overall, structure, environment or movement shots; small portable products may use hands only when an action proves a visible fact. When video type is 手持演示 but the product is too large, use hand-scale, local controls or real-use context instead of pretending it can be held. Every scene lasts five seconds or less, has one visual action, requiredProductFacts, narration and caption. Never assign images to scenes by upload order or mention image/material numbers. fallbackReferenceIndex is optional internal-only metadata for a single-image outage fallback; if used, choose it only from visual suitability and never mention it in any visible copy."
             ].join(" ")
           },
           { role: "user", content: buildUserContent(input) }
@@ -104,8 +104,10 @@ function buildUserContent(input: VideoPromptWriterInput): Array<Record<string, u
       "Output requirements:",
       "- JSON only: {\"summary\":\"...\",\"plan\":{...}}. You may additionally return script.",
       "- plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges and verified.",
+      "- plan.productProfile.presentation must contain productType, scale (portable|large|unknown), handInteraction (recommended|conditional|avoid), preferredApproaches and forbiddenApproaches. It is an internal factual decision that controls all scenes.",
       "- All images show one product from different views. They are a unified fact package, not a sequence and not a requirement to show each one.",
       "- plan.scenes must contain exactly one 5-second-or-less scene per 5 seconds of duration. Each scene has purpose, requiredProductFacts, visualPrompt, narration and caption. Do not use source image numbers or assign a source image to a scene.",
+      "- If video type is AI智能判断, infer a credible presentation from the images. Do not add hands by default. Cars, large appliances, furniture and large equipment must not be described as hand-held. If video type is 手持演示 and the product is too large, use scale, local controls or real-use context instead of a false holding action.",
       "- Keep within selected duration; product remains visible and recognizable.",
       "- Do not invent functions, materials, text, packaging, accessories, people, or a scene unsupported by the product image and brief."
     ].join("\n")
