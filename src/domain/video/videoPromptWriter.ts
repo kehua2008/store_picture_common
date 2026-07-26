@@ -35,36 +35,45 @@ type ChatCompletionResponse = {
 
 export class OpenAICompatibleVideoPromptWriter {
   constructor(
-    private readonly options: { apiKey?: string; baseUrl: string; model: string; fetcher?: typeof fetch }
+    private readonly options: { apiKey?: string; baseUrl: string; model: string; fetcher?: typeof fetch; timeoutMs?: number }
   ) {}
 
   async write(input: VideoPromptWriterInput): Promise<VideoPromptWriterResult> {
     const apiKey = this.options.apiKey?.trim();
     if (!apiKey) throw new VideoPromptWriterError("video_prompt_writer_not_configured", "AI提示词代写服务暂未配置，请稍后重试。", 503);
-    const response = await (this.options.fetcher ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: this.options.model,
-        temperature: input.mode === "revise" ? 0.35 : 0.45,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: [
-              "You are a senior ecommerce short-video director for general merchandise products.",
-              "Return strict JSON only with keys summary and plan.",
-              "Write in Chinese.",
-              "The script must be a concrete shot-by-shot prompt for a video-generation model.",
-              "Treat every uploaded image as a multi-angle fact package for ONE same product, not as an ordered storyboard or different products. Preserve facts jointly inferred from all images. Before writing scenes, assess the product type, physical scale, whether hand interaction is credible, preferred presentation approaches, and approaches that must be avoided. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
-              "Do not add brands, watermarks, QR codes, prices, certifications, unsupported claims, or nonexistent product features.",
-              "plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges, verified and presentation. presentation contains productType, scale (portable|large|unknown), handInteraction (recommended|conditional|avoid), preferredApproaches and forbiddenApproaches. Return directorBeats for the COMPLETE video timeline. Each beat has startSeconds, endSeconds, visualSubject, cameraMovement, action, narration and caption. The beat count, pacing and narrative order are fully director-led; do not force a product reveal, detail, use-scene or call-to-action template. Beats must cover the selected duration continuously with no gaps or overlaps. scenes is server-internal and must not be returned. When video type is AI智能判断, never default to hands: cars, large appliances, furniture and large equipment use overall, structure, environment or movement shots; small portable products may use hands only when an action proves a visible fact. When video type is 手持演示 but the product is too large, use hand-scale, local controls or real-use context instead of pretending it can be held. Never assign images to beats by upload order or mention image/material numbers."
-            ].join(" ")
-          },
-          { role: "user", content: buildUserContent(input) }
-        ]
-      })
-    });
+    let response: Response;
+    try {
+      response = await (this.options.fetcher ?? fetch)(`${this.options.baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(this.options.timeoutMs ?? 75_000),
+        body: JSON.stringify({
+          model: this.options.model,
+          temperature: input.mode === "revise" ? 0.35 : 0.45,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You are a senior ecommerce short-video director for general merchandise products.",
+                "Return strict JSON only with keys summary and plan.",
+                "Write in Chinese.",
+                "The script must be a concrete shot-by-shot prompt for a video-generation model.",
+                "Treat every uploaded image as a multi-angle fact package for ONE same product, not as an ordered storyboard or different products. Preserve facts jointly inferred from all images. Before writing scenes, assess the product type, physical scale, whether hand interaction is credible, preferred presentation approaches, and approaches that must be avoided. Do not turn a household product into apparel or force a human model unless the user specifically requests it.",
+                "Do not add brands, watermarks, QR codes, prices, certifications, unsupported claims, or nonexistent product features.",
+                "plan.productProfile must contain title, identityFacts, visualFacts, forbiddenChanges, verified and presentation. presentation contains productType, scale (portable|large|unknown), handInteraction (recommended|conditional|avoid), preferredApproaches and forbiddenApproaches. Return directorBeats for the COMPLETE video timeline. Each beat has startSeconds, endSeconds, visualSubject, cameraMovement, action, narration and caption. The beat count, pacing and narrative order are fully director-led; do not force a product reveal, detail, use-scene or call-to-action template. Beats must cover the selected duration continuously with no gaps or overlaps. scenes is server-internal and must not be returned. When video type is AI智能判断, never default to hands: cars, large appliances, furniture and large equipment use overall, structure, environment or movement shots; small portable products may use hands only when an action proves a visible fact. When video type is 手持演示 but the product is too large, use hand-scale, local controls or real-use context instead of pretending it can be held. Never assign images to beats by upload order or mention image/material numbers."
+              ].join(" ")
+            },
+            { role: "user", content: buildUserContent(input) }
+          ]
+        })
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        throw new VideoPromptWriterError("video_prompt_writer_timeout", "AI提示词代写响应超时，请稍后重试。", 504);
+      }
+      throw new VideoPromptWriterError("video_prompt_writer_provider_unreachable", "AI提示词代写服务暂时无法连接，请稍后重试。", 502);
+    }
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       throw new VideoPromptWriterError("video_prompt_writer_provider_failed", detail || "AI提示词代写失败，请稍后重试。", response.status);

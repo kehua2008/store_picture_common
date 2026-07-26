@@ -436,11 +436,18 @@ async function requestVideoPromptWriter(input: {
   voiceoverMode: string;
   subtitleMode: string;
 }) {
-  const response = await fetch("/api/video-prompt-writer", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input)
-  });
+  let response: Response;
+  try {
+    response = await fetch("/api/video-prompt-writer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(90_000),
+      body: JSON.stringify(input)
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new Error("AI提示词代写响应超时，请稍后重试。");
+    throw new Error("AI提示词代写服务暂时无法连接，请稍后重试。");
+  }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(typeof body?.message === "string" ? body.message : "AI提示词代写失败，请稍后重试。");
   if (typeof body?.script !== "string" || !body.script.trim()) throw new Error("AI提示词代写返回内容为空，请稍后重试。");

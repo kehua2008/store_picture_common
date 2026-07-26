@@ -54,4 +54,15 @@ describe("OpenAICompatibleVideoPromptWriter", () => {
     const writer = new OpenAICompatibleVideoPromptWriter({ apiKey: "", baseUrl: "https://example.test", model: "test-model" });
     await expect(writer.write(request)).rejects.toMatchObject({ code: "video_prompt_writer_not_configured", status: 503 } satisfies Partial<VideoPromptWriterError>);
   });
+
+  it("returns a clear error when the provider times out", async () => {
+    const writer = new OpenAICompatibleVideoPromptWriter({
+      apiKey: "test-key",
+      baseUrl: "https://example.test",
+      model: "test-model",
+      fetcher: async () => { throw new DOMException("Timed out", "TimeoutError"); }
+    });
+
+    await expect(writer.write(request)).rejects.toMatchObject({ code: "video_prompt_writer_timeout", status: 504 } satisfies Partial<VideoPromptWriterError>);
+  });
 });
