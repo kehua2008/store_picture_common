@@ -23,6 +23,10 @@ export function videoCompositionCapabilities(): VideoCompositionCapabilities {
 
 export class FfmpegVideoComposer implements VideoComposer {
   async compose(job: VideoJob): Promise<{ ok: true; url: string } | { ok: false; error: VideoError }> {
+    return enqueueComposition(() => this.composeExclusive(job));
+  }
+
+  private async composeExclusive(job: VideoJob): Promise<{ ok: true; url: string } | { ok: false; error: VideoError }> {
     const capabilities = videoCompositionCapabilities();
     if (!capabilities.composerAvailable) return failure("composer_not_configured", "视频合成服务暂未配置，视觉分镜已保留，可在服务恢复后继续合成。", true);
     if (job.creativePlan?.audioMode === "tts" && !capabilities.ttsAvailable) return failure("tts_not_configured", "阿里云智能语音尚未配置，无法生成真实配音。", false);
@@ -100,7 +104,7 @@ function buildArgs(input: { sourceFile?: string; listFile?: string; audioFile?: 
   else if (input.audioFile && input.nativeAudio) args.push("-filter_complex", "[0:a]volume=0.16[music];[1:a]volume=1[voice];[music][voice]amix=inputs=2:duration=first:dropout_transition=0[aout]", "-map", "0:v:0", "-map", "[aout]");
   else args.push("-map", "0:v:0", "-map", input.nativeAudio ? "0:a:0" : `${audioInputs ? 1 : 1}:a:0`);
   if (input.captionsFile) args.push("-vf", `ass=${input.captionsFile.replace(/:/g, "\\:").replace(/'/g, "\\'")}`);
-  args.push("-t", String(input.duration), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", input.output);
+  args.push("-t", String(input.duration), "-c:v", "libx264", "-threads", process.env.VIDEO_COMPOSER_THREADS?.trim() || "1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", input.output);
   return args;
 }
 
@@ -108,12 +112,25 @@ function runFfmpeg(args: string[]): Promise<void> {
   const executable = ffmpegPath();
   if (!executable) return Promise.reject(new Error("未找到 FFmpeg。"));
   return new Promise((resolve, reject) => {
-    const process = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe"] });
     let error = "";
-    process.stderr.on("data", (chunk) => { error += String(chunk); });
-    process.once("error", reject);
-    process.once("close", (code) => code === 0 ? resolve() : reject(new Error(error.slice(-800) || "FFmpeg 合成失败。")));
+    const timeoutMs = Number(process.env.VIDEO_COMPOSER_TIMEOUT_MS) || 5 * 60_000;
+    const timeout = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+    child.stderr.on("data", (chunk) => { error += String(chunk); });
+    child.once("error", (cause) => { clearTimeout(timeout); reject(cause); });
+    child.once("close", (code) => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error(error.slice(-800) || "FFmpeg 合成失败或超时。")); });
   });
+}
+
+type ComposerQueue = typeof globalThis & { __commonVideoComposeTail?: Promise<void> };
+
+async function enqueueComposition<T>(work: () => Promise<T>): Promise<T> {
+  const registry = globalThis as ComposerQueue;
+  const previous = registry.__commonVideoComposeTail ?? Promise.resolve();
+  let release: () => void = () => undefined;
+  registry.__commonVideoComposeTail = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try { return await work(); } finally { release(); }
 }
 
 function timedNarrativeItems(job: VideoJob) { return job.creativePlan?.directorBeats ?? job.creativePlan?.scenes ?? []; }

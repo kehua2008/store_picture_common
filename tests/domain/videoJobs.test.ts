@@ -103,6 +103,46 @@ describe("VideoJobService", () => {
     }
   });
 
+  it("runs a composing task once when route bundles create separate service instances", async () => {
+    const dataDir = path.join(os.tmpdir(), `common-video-${crypto.randomUUID()}`);
+    let composeCalls = 0;
+    let releaseComposition: () => void = () => undefined;
+    const compositionStarted = new Promise<void>((resolve) => {
+      releaseComposition = resolve;
+    });
+    let started!: () => void;
+    const startedComposition = new Promise<void>((resolve) => { started = resolve; });
+    const repository = new FileVideoJobRepository({ dataDir });
+    const provider = {
+      async create() { return { ok: true as const, task: { id: "unused", model: "ark" } }; },
+      async get() { return { ok: true as const, status: "succeeded", outputUrl: "https://example.test/video.mp4" }; }
+    };
+    const composer = {
+      async compose(job: { id: string }) {
+        composeCalls += 1;
+        started();
+        await compositionStarted;
+        return { ok: true as const, url: `https://example.test/${job.id}.mp4` };
+      }
+    };
+    try {
+      const firstService = new VideoJobService(repository, provider, {}, composer);
+      const secondService = new VideoJobService(repository, provider, {}, composer);
+      const job = await firstService.createJob({ customerId: "customer-compose", prompt: "video", images: ["https://example.test/source.png"], aspectRatio: "9:16", durationSeconds: 5, outputResolution: "480p", reservedCredits: 300 });
+      await repository.update(job.id, (item) => ({ ...item, status: "composing", scenes: [{ sceneId: "scene-1", index: 0, prompt: "video", status: "succeeded", resultUrl: "https://example.test/video.mp4" }] }));
+
+      const firstRun = firstService.run(job.id);
+      await startedComposition;
+      const secondRun = secondService.run(job.id);
+      await Promise.resolve();
+      expect(composeCalls).toBe(1);
+      releaseComposition();
+      await Promise.all([firstRun, secondRun]);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("submits a 15-second Ark video once with the complete multi-angle fact package", async () => {
     const dataDir = path.join(os.tmpdir(), `common-video-${crypto.randomUUID()}`);
     const submitted: string[][] = [];

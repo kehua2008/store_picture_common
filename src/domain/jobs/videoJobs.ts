@@ -23,6 +23,13 @@ export type VideoSceneJob = {
 
 export type VideoRenderMode = "native_full" | "segmented_fallback";
 
+type VideoRunRegistry = typeof globalThis & { __commonVideoActiveJobIds?: Set<string> };
+
+function activeVideoJobIds() {
+  const registry = globalThis as VideoRunRegistry;
+  return registry.__commonVideoActiveJobIds ?? (registry.__commonVideoActiveJobIds = new Set<string>());
+}
+
 export interface VideoJob {
   id: string;
   customerId: string;
@@ -94,7 +101,8 @@ export class FileVideoJobRepository {
 }
 
 export class VideoJobService {
-  private readonly active = new Set<string>();
+  // Next can load route bundles independently; share this lock across all bundles in one server process.
+  private readonly active = activeVideoJobIds();
   constructor(private readonly repository: FileVideoJobRepository, private readonly provider: VideoProvider, private readonly settlement: { onSubmitted?: (job: VideoJob) => Promise<void>; onSucceeded?: (job: VideoJob) => Promise<void>; onFailed?: (job: VideoJob) => Promise<void>; onCanceled?: (job: VideoJob) => Promise<void> } = {}, private composer?: VideoComposer) {}
   useComposer(composer: VideoComposer) { this.composer = composer; }
   createJob(input: Omit<VideoJob, "id" | "createdAt" | "updatedAt" | "status" | "progress" | "chargedCredits">) { return this.repository.create(input); }
